@@ -1,0 +1,19 @@
+D1YNG
+
+Name: hello
+
+Screen 1 - What do you want to study?
+Answer: Personal Finance
+
+Screen 2 - How confident do you feel about managing your personal finances?
+Answer: Low-Intermediate
+
+Screen 3 - What are your main financial goals for the next 1–3 years?
+Answer:
+  1. Manage monthly expenses
+
+Screen 4 - Which description best matches your current situation?
+Answer: Student
+
+Screen 5 - How do you prefer to learn?
+Answer: Small chunks

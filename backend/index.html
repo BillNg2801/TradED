@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FinEdu - Finance News</title>
+    <link rel="stylesheet" href="styles.css">
+    <script>
+        // Apply theme immediately to prevent flash of unstyled content
+        (function() {
+            const savedMode = localStorage.getItem('uiMode') || 'dark';
+            document.documentElement.setAttribute('data-theme', savedMode);
+        })();
+    </script>
+</head>
+<body>
+    <!-- Name Input Modal (hidden - no longer used) -->
+    <div id="nameModal" class="modal hidden" style="display: none;">
+        <div class="modal-content">
+            <h2>What is your name?</h2>
+            <input type="text" id="nameInput" placeholder="Enter your name here..." autofocus>
+            <p class="modal-hint">Press Enter to continue</p>
+        </div>
+    </div>
+
+    <!-- Survey Modals -->
+    <!-- Screen 1: Market Focus -->
+    <div id="surveyScreen1" class="modal hidden">
+        <div class="modal-content survey-modal">
+            <h2>What do you want to learn day trading for?</h2>
+            <div class="survey-options">
+                <button class="survey-option" data-value="Forex">Forex</button>
+                <button class="survey-option" data-value="Stocks">Stocks</button>
+                <button class="survey-option" data-value="Crypto">Crypto</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Screen 2: Trading Confidence Level -->
+    <div id="surveyScreen2" class="modal hidden">
+        <div class="modal-content survey-modal">
+            <h2>How confident do you feel about day trading right now?</h2>
+            <div class="survey-options">
+                <button class="survey-option" data-value="Beginner">Beginner</button>
+                <button class="survey-option" data-value="Intermediate">Intermediate</button>
+                <button class="survey-option" data-value="Advanced">Advanced</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Screen 3: Primary Trading Goal -->
+    <div id="surveyScreen3" class="modal hidden">
+        <div class="modal-content survey-modal">
+            <h2>What's your main goal with trading?</h2>
+            <p class="survey-hint">Select all that apply</p>
+            <div class="survey-options multi-select" id="screen3Options">
+                <button class="survey-option" data-value="Improve my financial situation">Improve my financial situation</button>
+                <button class="survey-option" data-value="Save for a dream purchase">Save for a dream purchase</button>
+                <button class="survey-option" data-value="Become financially self-sustaining">Become financially self-sustaining</button>
+                <button class="survey-option" data-value="Support my family / close ones">Support my family / close ones</button>
+            </div>
+            <button class="survey-continue-btn" id="screen3Continue" disabled>Continue</button>
+        </div>
+    </div>
+
+    <!-- Screen 4: Income & Life Situation -->
+    <div id="surveyScreen4" class="modal hidden">
+        <div class="modal-content survey-modal">
+            <h2>Which option best describes your current situation?</h2>
+            <div class="survey-options">
+                <button class="survey-option" data-value="Student">Student — part-time income or no regular income</button>
+                <button class="survey-option" data-value="Full-time">Full-time job — stable monthly income</button>
+                <button class="survey-option" data-value="Freelancer">Freelancer — irregular income</button>
+                <button class="survey-option" data-value="In transition">In transition — unemployed or between jobs</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Screen 5: Course Pace -->
+    <div id="surveyScreen5" class="modal hidden">
+        <div class="modal-content survey-modal">
+            <h2>How fast do you want to move through the course?</h2>
+            <div class="survey-options">
+                <button class="survey-option" data-value="20 lessons">20 lessons — Slow and steady</button>
+                <button class="survey-option" data-value="15 lessons">15 lessons — Balanced pace</button>
+                <button class="survey-option" data-value="10 lessons">10 lessons — Fast and intensive</button>
+                <button class="survey-option" data-value="5 lessons">5 lessons — Crash course</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Login/Signup Modal (shown after survey) -->
+    <div id="authModal" class="modal hidden">
+        <div class="modal-content auth-modal">
+            <!-- Login Form (shown by default) -->
+            <div id="loginForm" class="auth-form active">
+                <h2>Welcome to FinEdu!</h2>
+                <p class="auth-subtitle">Login to save your progress and continue learning</p>
+                <div id="authError" class="auth-error hidden"></div>
+                
+                <div class="auth-form-group">
+                    <label for="loginEmail">Email</label>
+                    <input type="email" id="loginEmail" placeholder="your.email@example.com" required>
+                </div>
+                
+                <div class="auth-form-group">
+                    <label for="loginPassword">Password</label>
+                    <input type="password" id="loginPassword" placeholder="Enter your password" required>
+                </div>
+                
+                <button class="auth-btn primary" id="loginBtn">Login</button>
+                
+                <p class="auth-switch">
+                    Don't have an account? 
+                    <button class="auth-link-btn" id="showSignup">Sign up</button>
+                </p>
+            </div>
+
+            <!-- Signup Form (hidden by default) -->
+            <div id="signupForm" class="auth-form hidden">
+                <h2>Create Your Account</h2>
+                <p class="auth-subtitle">Sign up to save your progress and continue learning</p>
+                <div id="signupError" class="auth-error hidden"></div>
+                
+                <div class="auth-form-group">
+                    <label for="signupName">Full Name</label>
+                    <input type="text" id="signupName" placeholder="Your name" required>
+                </div>
+                
+                <div class="auth-form-group">
+                    <label for="signupEmail">Email</label>
+                    <input type="email" id="signupEmail" placeholder="your.email@example.com" required>
+                </div>
+                
+                <div class="auth-form-group">
+                    <label for="signupPassword">Password</label>
+                    <input type="password" id="signupPassword" placeholder="At least 6 characters" required>
+                    <small class="auth-hint">Password must be at least 6 characters</small>
+                </div>
+                
+                <button class="auth-btn primary" id="signupBtn">Create Account</button>
+                
+                <p class="auth-switch">
+                    Already have an account? 
+                    <button class="auth-link-btn" id="showLogin">Login</button>
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content (hidden initially) -->
+    <div id="mainContent" class="main-content hidden">
+        <!-- Sidebar Dashboard -->
+        <aside class="sidebar">
+            <div class="profile-section">
+                <div class="profile-avatar">
+                    <span id="profileInitial"></span>
+                </div>
+                <div class="profile-name-container">
+                    <div class="profile-name" id="sidebarUserName"></div>
+                    <span class="profile-id" id="profileId"></span>
+                </div>
+                <div class="profile-study" id="profileStudy"></div>
+            </div>
+            
+            <nav class="sidebar-nav">
+                <div class="nav-item" id="coursesTab">
+                    <span class="nav-icon">📚</span>
+                    <span class="nav-text">Courses</span>
+                </div>
+                <div class="nav-item" id="practiceTab">
+                    <span class="nav-icon">💼</span>
+                    <span class="nav-text">Feed</span>
+                </div>
+            </nav>
+            
+            <!-- Sidebar Window - Chat -->
+            <div class="sidebar-window" id="chatWindow">
+                <div class="chat-container">
+                    <!-- Fullscreen button in top-right corner -->
+                    <button class="chat-fullscreen-btn" id="chatFullscreenBtn" title="Fullscreen">
+                        <span class="fullscreen-icon">⛶</span>
+                    </button>
+                    
+                    <div class="chat-messages" id="chatMessages">
+                        <div class="chat-loading">Loading messages...</div>
+                    </div>
+                    <div class="chat-input-container">
+                        <input 
+                            type="text" 
+                            id="chatInput" 
+                            class="chat-input" 
+                            placeholder="Type a message..." 
+                            maxlength="500"
+                        >
+                        <button id="chatSendBtn" class="chat-send-btn">Send</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="sidebar-actions">
+                <button class="settings-button" id="settingsButton">
+                    <span class="settings-icon">⚙️</span>
+                    <span class="settings-text">Settings</span>
+                </button>
+                <button class="logout-button" id="logoutButton">
+                    <span class="logout-icon">↩</span>
+                    <span class="logout-text">Logout</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Fullscreen Chat Window (hidden by default) -->
+        <div class="fullscreen-chat-container hidden" id="fullscreenChatContainer">
+            <div class="fullscreen-chat-header">
+                <h2>Messages</h2>
+                <button class="fullscreen-chat-close-btn" id="fullscreenChatCloseBtn" title="Exit Fullscreen">
+                    <span>✕</span>
+                </button>
+            </div>
+            <div class="fullscreen-chat-content">
+                <div class="fullscreen-chat-messages" id="fullscreenChatMessages">
+                    <div class="chat-loading">Loading messages...</div>
+                </div>
+                <div class="fullscreen-chat-input-container">
+                    <input 
+                        type="text" 
+                        id="fullscreenChatInput" 
+                        class="fullscreen-chat-input" 
+                        placeholder="Type a message..." 
+                        maxlength="500"
+                    >
+                    <button id="fullscreenChatSendBtn" class="fullscreen-chat-send-btn">Send</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Screen Content (News/Events Feed) -->
+        <div class="main-screen" id="mainScreen">
+            <div class="header-wrapper">
+                <header class="main-header">
+                    <div class="header-inner">
+                        <div class="header-title">
+                            <span class="header-label">Feed Controls</span>
+                            <p class="header-subtitle">Switch between news and events</p>
+                        </div>
+                        <!-- Toggle Switch -->
+                        <div class="view-toggle">
+                            <button class="toggle-option active" id="newsToggle" data-view="news">
+                                <span class="toggle-icon">📰</span>
+                                <span class="toggle-text">News</span>
+                            </button>
+                            <button class="toggle-option" id="eventsToggle" data-view="events">
+                                <span class="toggle-icon">📅</span>
+                                <span class="toggle-text">Events</span>
+                            </button>
+                        </div>
+                    </div>
+                </header>
+            </div>
+            
+            <div class="feed-wrapper">
+                <!-- News Container -->
+                <div id="newsContainer" class="content-container active">
+                    <div class="news-container">
+                        <div id="newsFeed" class="news-feed">
+                            <div class="loading">Loading finance news...</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Events Container -->
+                <div id="eventsContainer" class="content-container">
+                    <div class="events-container">
+                        <div id="eventsFeed" class="events-feed">
+                            <div class="loading">Switch to Events to see upcoming workshops.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Courses Window -->
+        <div class="courses-window" id="coursesWindow" style="display: none;">
+            <!-- Lessons List View (Full Screen) -->
+            <div class="lessons-list-view" id="lessonsListView">
+                <div class="courses-header">
+                    <h2>Day Trading Fundamentals</h2>
+                </div>
+
+                <div class="lessons-tabs-container">
+                    <div class="lessons-tabs" id="lessonsTabs">
+                        <!-- Lesson tabs will be injected here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Lesson Content View (Full Screen) -->
+            <div class="lesson-content-view hidden" id="lessonContentView">
+                <button class="lesson-back-button" id="lessonBackButton">← Back to all lessons</button>
+                <div class="lesson-content" id="lessonContent">
+                    <!-- Lesson content will be injected here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Window -->
+        <div class="settings-window" id="settingsWindow" style="display: none;">
+            <div class="settings-container">
+                <div class="settings-header">
+                    <h2 class="settings-title">Settings</h2>
+                </div>
+                
+                <div class="settings-panel">
+                    <div class="settings-section">
+                        <h3 class="settings-section-title">UI Mode</h3>
+                        <div class="settings-content">
+                            <div class="ui-mode-toggle">
+                                <button class="ui-mode-option active" data-mode="dark" id="darkModeBtn">
+                                    <span class="ui-mode-icon">🌙</span>
+                                    <span class="ui-mode-text">Dark</span>
+                                </button>
+                                <button class="ui-mode-option" data-mode="light" id="lightModeBtn">
+                                    <span class="ui-mode-icon">☀️</span>
+                                    <span class="ui-mode-text">Light</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="../AI/config.js"></script>
+    <script src="../AI/openai.js"></script>
+    <script src="script.js"></script>
+    <script>
+        // Fallback handler - works even if other scripts fail
+        (function() {
+            const STORAGE_KEY = 'finEduUserData';
+
+            function setupNameInput() {
+                const nameInput = document.getElementById('nameInput');
+                const nameModal = document.getElementById('nameModal');
+                const mainContent = document.getElementById('mainContent');
+                const sidebarUserName = document.getElementById('sidebarUserName');
+                const profileInitial = document.getElementById('profileInitial');
+                const profileId = document.getElementById('profileId');
+                const profileStudy = document.getElementById('profileStudy');
+                
+                if (!nameInput || !nameModal || !mainContent) {
+                    console.log('Elements not ready, retrying...');
+                    setTimeout(setupNameInput, 100);
+                    return;
+                }
+
+                // Attempt to restore session from localStorage
+                try {
+                    if (window.localStorage) {
+                        const stored = window.localStorage.getItem(STORAGE_KEY);
+                        if (stored) {
+                            const data = JSON.parse(stored);
+                            if (data && data.userName && data.userId) {
+                                if (sidebarUserName) sidebarUserName.textContent = data.userName;
+                                if (profileId) profileId.textContent = data.userId;
+                                if (profileStudy) profileStudy.textContent = data.screen1 || '';
+                                
+                                if (profileInitial && data.userName) {
+                                    const words = data.userName.split(' ');
+                                    if (words.length >= 2) {
+                                        profileInitial.textContent = (words[0][0] + words[words.length - 1][0]).toUpperCase();
+                                    } else {
+                                        profileInitial.textContent = data.userName.substring(0, 2).toUpperCase();
+                                    }
+                                }
+                                
+                                nameModal.style.display = 'none';
+                                mainContent.classList.remove('hidden');
+                                if (typeof loadFinanceNews === 'function') {
+                                    loadFinanceNews();
+                                }
+                                if (typeof startContinuousNewsUpdates === 'function') {
+                                    startContinuousNewsUpdates();
+                                }
+                                return;
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.warn('Fallback session restore failed:', error);
+                }
+                
+                console.log('Setting up name input handler');
+                
+                function handleEnter() {
+                    const userName = nameInput.value.trim();
+                    console.log('Enter handler called, userName:', userName);
+                    
+                    if (userName) {
+                        nameModal.style.display = 'none';
+                        // Start survey if function exists, otherwise show main screen
+                        if (typeof startSurvey === 'function') {
+                            if (typeof generateUserId === 'function') {
+                                window.surveyData = window.surveyData || {};
+                                window.surveyData.userName = userName;
+                                window.surveyData.userId = generateUserId();
+                            }
+                            startSurvey();
+                        } else {
+                            // Fallback: show main screen directly
+                            if (sidebarUserName) sidebarUserName.textContent = userName;
+                            if (profileInitial) {
+                                const words = userName.split(' ');
+                                if (words.length >= 2) {
+                                    profileInitial.textContent = (words[0][0] + words[words.length - 1][0]).toUpperCase();
+                                } else {
+                                    profileInitial.textContent = userName.substring(0, 2).toUpperCase();
+                                }
+                            }
+                            mainContent.classList.remove('hidden');
+                            if (typeof loadFinanceNews === 'function') {
+                                loadFinanceNews();
+                            }
+                            if (typeof startContinuousNewsUpdates === 'function') {
+                                startContinuousNewsUpdates();
+                            }
+                        }
+                    }
+                }
+                
+                nameInput.addEventListener('keydown', function(e) {
+                    if (e.key === 'Enter' || e.keyCode === 13) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleEnter();
+                    }
+                });
+                
+                nameInput.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter' || e.keyCode === 13) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleEnter();
+                    }
+                });
+
+                const logoutButton = document.getElementById('logoutButton');
+                if (logoutButton) {
+                    logoutButton.addEventListener('click', function() {
+                        try {
+                            if (window.localStorage) {
+                                window.localStorage.removeItem(STORAGE_KEY);
+                            }
+                        } catch (error) {
+                            console.warn('Fallback logout failed to clear storage:', error);
+                        }
+                        if (mainContent) {
+                            mainContent.classList.add('hidden');
+                        }
+                        if (nameModal) {
+                            nameModal.style.display = 'flex';
+                        }
+                        if (nameInput) {
+                            nameInput.value = '';
+                            nameInput.focus();
+                        }
+                    });
+                }
+            }
+            
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', setupNameInput);
+            } else {
+                setupNameInput();
+            }
+        })();
+    </script>
+</body>
+</html>
+
