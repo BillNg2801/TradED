@@ -26,6 +26,12 @@ npm-debug.log*
 # Personal data (backend)
 backend/personal data/
 
+# API Keys Backup File (DO NOT COMMIT THIS!)
+API_KEYS_BACKUP.txt
+SECRETS_BACKUP.txt
+*_BACKUP.txt
+*_SECRETS.txt
+
 
 
 
