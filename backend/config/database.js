@@ -1,8 +1,11 @@
 const { MongoClient } = require('mongodb');
 require('dotenv').config();
 
-// MongoDB connection string
-const uri = process.env.MONGODB_URI || 'mongodb+srv://mailtobin05_db_user:09F64qt3mWnA1jt4@cluster0.i6eenlx.mongodb.net/?appName=Cluster0';
+// MongoDB connection string - MUST be set in environment variables
+if (!process.env.MONGODB_URI) {
+    throw new Error('MONGODB_URI environment variable is required. Please set it in your .env file.');
+}
+const uri = process.env.MONGODB_URI;
 
 // Database name
 const dbName = process.env.MONGODB_DB_NAME || 'FinEdu';
