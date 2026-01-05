@@ -367,8 +367,8 @@ process.on('SIGINT', async () => {
 module.exports = app;
 
 // Only start server locally (not on Vercel)
-// Check for Vercel environment or if PORT is not set (Vercel sets it automatically)
-if (!process.env.VERCEL && process.env.PORT !== undefined) {
+// Check for Vercel environment - if not on Vercel, start the server
+if (!process.env.VERCEL) {
     startServer();
 }
 
