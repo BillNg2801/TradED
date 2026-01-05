@@ -3538,17 +3538,33 @@ async function loadChatMessages() {
         }
         // Don't show loading if messages are already displayed
 
+        // Add timeout to prevent hanging (10 seconds)
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+
         const response = await fetch(`${BACKEND_BASE_URL}/api/chat/messages`, {
             method: 'GET',
             headers: {
                 'Authorization': `Bearer ${token}`
-            }
+            },
+            signal: controller.signal
         });
+
+        clearTimeout(timeoutId);
 
         if (!response.ok) {
             console.error('Error loading chat messages:', response.status);
+            if (response.status === 401) {
+                // Token expired or invalid
+                if (chatMessagesContainer) {
+                    chatMessagesContainer.innerHTML = '<div class="chat-loading">Please log in to view messages</div>';
+                }
+                // Show auth modal
+                showAuthModal();
+                return;
+            }
             if (chatMessagesContainer) {
-                chatMessagesContainer.innerHTML = '<div class="chat-loading">Error loading messages</div>';
+                chatMessagesContainer.innerHTML = '<div class="chat-loading">Error loading messages. Please try again.</div>';
             }
             return;
         }
@@ -3572,8 +3588,13 @@ async function loadChatMessages() {
         }
     } catch (error) {
         console.error('Error loading chat messages:', error);
-        if (chatMessagesContainer) {
-            chatMessagesContainer.innerHTML = '<div class="chat-loading">Error loading messages</div>';
+        if (error.name === 'AbortError') {
+            // Timeout occurred
+            if (chatMessagesContainer) {
+                chatMessagesContainer.innerHTML = '<div class="chat-loading">Request timed out. Please refresh the page.</div>';
+            }
+        } else if (chatMessagesContainer) {
+            chatMessagesContainer.innerHTML = '<div class="chat-loading">Error loading messages. Please try again.</div>';
         }
     }
 }
@@ -3922,15 +3943,28 @@ async function loadFullscreenChatMessages() {
             return;
         }
 
+        // Add timeout to prevent hanging (10 seconds)
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+
         const response = await fetch(`${BACKEND_BASE_URL}/api/chat/messages`, {
             method: 'GET',
             headers: {
                 'Authorization': `Bearer ${token}`
-            }
+            },
+            signal: controller.signal
         });
 
+        clearTimeout(timeoutId);
+
         if (!response.ok) {
-            fullscreenMessagesContainer.innerHTML = '<div class="chat-loading">Error loading messages</div>';
+            if (response.status === 401) {
+                // Token expired or invalid
+                fullscreenMessagesContainer.innerHTML = '<div class="chat-loading">Please log in to view messages</div>';
+                showAuthModal();
+                return;
+            }
+            fullscreenMessagesContainer.innerHTML = '<div class="chat-loading">Error loading messages. Please try again.</div>';
             return;
         }
 
@@ -3976,7 +4010,12 @@ async function loadFullscreenChatMessages() {
         }
     } catch (error) {
         console.error('Error loading fullscreen chat messages:', error);
-        fullscreenMessagesContainer.innerHTML = '<div class="chat-loading">Error loading messages</div>';
+        if (error.name === 'AbortError') {
+            // Timeout occurred
+            fullscreenMessagesContainer.innerHTML = '<div class="chat-loading">Request timed out. Please refresh the page.</div>';
+        } else {
+            fullscreenMessagesContainer.innerHTML = '<div class="chat-loading">Error loading messages. Please try again.</div>';
+        }
     }
 }
 
