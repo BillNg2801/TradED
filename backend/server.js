@@ -363,10 +363,12 @@ process.on('SIGINT', async () => {
 });
 
 // Export for Vercel serverless functions
+// Vercel will automatically detect this as a serverless function
 module.exports = app;
 
 // Only start server locally (not on Vercel)
-if (process.env.VERCEL !== '1') {
+// Check for Vercel environment or if PORT is not set (Vercel sets it automatically)
+if (!process.env.VERCEL && process.env.PORT !== undefined) {
     startServer();
 }
 
