@@ -23,6 +23,12 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(__dirname)); // Serve static files
 
+// Root route - serve index.html explicitly for Vercel
+app.get('/', (req, res) => {
+    const path = require('path');
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
+
 // Authentication routes
 app.use('/api/auth', authRoutes);
 
