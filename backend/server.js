@@ -362,6 +362,11 @@ process.on('SIGINT', async () => {
     process.exit(0);
 });
 
-// Start the server
-startServer();
+// Export for Vercel serverless functions
+module.exports = app;
+
+// Only start server locally (not on Vercel)
+if (process.env.VERCEL !== '1') {
+    startServer();
+}
 
