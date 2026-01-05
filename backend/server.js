@@ -178,14 +178,14 @@ async function fetchSerpApiEvents() {
     }
 
     try {
-        // Use location-based queries as shown in SerpApi docs
+        // Use location-based queries for trading/market events
         // Try multiple major cities to get more results
         const queries = [
-            'finance events in New York',
-            'financial conference in San Francisco',
-            'investment events in Chicago',
-            'fintech conference in Boston',
-            'banking events in Los Angeles'
+            'trading events in New York',
+            'day trading conference in San Francisco',
+            'stock market events in Chicago',
+            'forex trading events in Boston',
+            'trading workshop in Los Angeles'
         ];
         
         // Try queries until we get results

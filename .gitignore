@@ -1,6 +1,10 @@
 # Environment variables
 .env
 .env.local
+backend/.env
+backend/.env.local
+.env.*
+backend/.env.*
 
 # API Keys and Secrets
 AI/config.js
@@ -31,6 +35,9 @@ API_KEYS_BACKUP.txt
 SECRETS_BACKUP.txt
 *_BACKUP.txt
 *_SECRETS.txt
+
+# Security check file (may contain info about secrets)
+SECURITY_CHECK.md
 
 
 

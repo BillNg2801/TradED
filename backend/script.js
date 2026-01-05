@@ -1,10 +1,44 @@
 // Global references to DOM elements (will be set in initializeApp)
 let nameModal, nameInput, mainContent, sidebarUserName, profileInitial, profileId, profileStudy;
-let newsFeed, coursesTab, practiceTab;
-let mainScreen, coursesWindow, settingsWindow;
+let newsFeed, coursesTab, practiceTab, quizzesTab;
+let mainScreen, coursesWindow, settingsWindow, quizzesWindow;
 let newsToggle, eventsToggle, newsContainer, eventsContainer, eventsFeed;
 let settingsButton, logoutButton;
 let eventsLoaded = false;
+
+// Course Chatbot - Use sessionStorage instead of global variable
+// Helper functions for chatbot history
+function getChatbotHistory() {
+    try {
+        const stored = sessionStorage.getItem('chatbotConversationHistory');
+        return stored ? JSON.parse(stored) : [];
+    } catch (error) {
+        console.error('Error loading chatbot history:', error);
+        return [];
+    }
+}
+
+function saveChatbotHistory(history) {
+    try {
+        sessionStorage.setItem('chatbotConversationHistory', JSON.stringify(history));
+    } catch (error) {
+        console.error('Error saving chatbot history:', error);
+    }
+}
+
+function clearChatbotHistory() {
+    try {
+        sessionStorage.removeItem('chatbotConversationHistory');
+        // Also clear the messages UI
+        const chatbotMessages = document.getElementById('chatbotMessages');
+        if (chatbotMessages) {
+            // Keep only the welcome message
+            chatbotMessages.innerHTML = '<div class="chatbot-welcome"><p>Hi! I\'m your course assistant. Ask me anything about the course material.</p></div>';
+        }
+    } catch (error) {
+        console.error('Error clearing chatbot history:', error);
+    }
+}
 
 // Persistent storage key
 const LOCAL_STORAGE_KEY = 'finEduUserData';
@@ -97,11 +131,13 @@ function initializeApp() {
     profileStudy = document.getElementById('profileStudy');
     newsFeed = document.getElementById('newsFeed');
     coursesTab = document.getElementById('coursesTab');
+    quizzesTab = document.getElementById('quizzesTab');
     practiceTab = document.getElementById('practiceTab');
     settingsButton = document.getElementById('settingsButton');
     logoutButton = document.getElementById('logoutButton');
     mainScreen = document.getElementById('mainScreen');
     coursesWindow = document.getElementById('coursesWindow');
+    quizzesWindow = document.getElementById('quizzesWindow');
     settingsWindow = document.getElementById('settingsWindow');
 
     // Toggle elements
@@ -136,12 +172,46 @@ function initializeApp() {
             surveyData.userId = user.userId;
             surveyData.userName = user.name;
             
-            // Check if survey is already completed
+            // Check if survey is already completed in localStorage
             if (restoreExistingUser()) {
                 console.log('Existing authenticated session restored.');
             } else {
-                // Authenticated but no survey - show survey
-                startSurvey();
+                // Survey data not in localStorage - check backend to see if survey was completed
+                // Use async function to check backend
+                checkUserSurveyStatus(user.userId).then(hasCompletedSurvey => {
+                    if (hasCompletedSurvey) {
+                        // User has completed survey - don't show survey on reload
+                        console.log('User has completed survey - dashboard ready');
+                        updateSidebarWithUser();
+                        
+                        // Restore saved window ONLY if it exists - no default to feed
+                        const lastActiveWindow = localStorage.getItem('lastActiveWindow');
+                        if (lastActiveWindow) {
+                            switchMainWindow(lastActiveWindow);
+                            
+                            // Load content for the restored window
+                            if (lastActiveWindow === 'courses') {
+                                loadCourseLessons();
+                            } else if (lastActiveWindow === 'quizzes') {
+                                loadQuizzes();
+                            }
+                            // Feed doesn't need loading (it loads automatically)
+                        }
+                        // If no saved window, do nothing - all windows stay hidden
+                        
+                        // Initialize chat and load messages (always, regardless of window state)
+                        if (!chatInitialized) {
+                            initializeChat();
+                        }
+                    } else {
+                        // User hasn't completed survey - show survey
+                        console.log('User has not completed survey - starting survey');
+                        startSurvey();
+                    }
+                }).catch(error => {
+                    console.error('Error checking survey status:', error);
+                    // Don't call showMainDashboard() on error - let windows stay static
+                });
             }
         } catch (error) {
             console.error('Error restoring authenticated session:', error);
@@ -158,10 +228,12 @@ function initializeApp() {
         // Hide all windows first
         if (mainScreen) mainScreen.style.display = 'none';
         if (coursesWindow) coursesWindow.style.display = 'none';
+        if (quizzesWindow) quizzesWindow.style.display = 'none';
         if (settingsWindow) settingsWindow.style.display = 'none';
         
         // Remove active states from all nav items
         if (coursesTab) coursesTab.classList.remove('active');
+        if (quizzesTab) quizzesTab.classList.remove('active');
         if (practiceTab) practiceTab.classList.remove('active');
         
         // Show the selected window and set active state
@@ -174,10 +246,22 @@ function initializeApp() {
                 if (coursesWindow) coursesWindow.style.display = 'flex';
                 if (coursesTab) coursesTab.classList.add('active');
                 break;
+            case 'quizzes':
+                if (quizzesWindow) quizzesWindow.style.display = 'flex';
+                if (quizzesTab) quizzesTab.classList.add('active');
+                break;
             case 'settings':
                 if (settingsWindow) settingsWindow.style.display = 'flex';
                 // Settings button doesn't need active state (it's in sidebar-actions)
                 break;
+        }
+        
+        // Save the active window to localStorage for page reload
+        try {
+            localStorage.setItem('lastActiveWindow', windowType);
+            console.log('[switchMainWindow] Saved window to localStorage:', windowType);
+        } catch (error) {
+            console.error('Error saving active window:', error);
         }
     }
 
@@ -188,6 +272,13 @@ function initializeApp() {
             // Load course lessons when courses tab is clicked
             loadCourseLessons();
         });
+
+        if (quizzesTab) {
+            quizzesTab.addEventListener('click', function() {
+                switchMainWindow('quizzes');
+                loadQuizzes(); // Load quizzes when tab is clicked
+            });
+        }
 
         practiceTab.addEventListener('click', function() {
             switchMainWindow('feed');
@@ -563,9 +654,72 @@ async function savePersonalStatsToAccount() {
     }
 }
 
+// Fake loading screen for course customization
+function runFakeCourseLoading() {
+    const loadingModal = document.getElementById('courseCustomizationLoading');
+    const progressBar = document.getElementById('loadingProgressBar');
+    const statusText = document.getElementById('loadingStatus');
+    
+    if (!loadingModal || !progressBar || !statusText) {
+        // If elements don't exist, just switch to feed (after signup only)
+        if (mainContent) {
+            mainContent.classList.remove('hidden');
+        }
+        // Simulate clicking the feed tab to switch to feed
+        if (practiceTab) {
+            practiceTab.click();
+        }
+        // Load news feed right away after switching to feed
+        loadFinanceNews();
+        startContinuousNewsUpdates();
+        return;
+    }
+    
+    // Show loading modal
+    loadingModal.classList.remove('hidden');
+    
+    let progress = 0;
+    const duration = 3000; // 3 seconds total
+    const interval = 30; // Update every 30ms
+    const increment = 100 / (duration / interval);
+    
+    const updateProgress = () => {
+        progress += increment;
+        if (progress > 100) progress = 100;
+        
+        progressBar.style.width = progress + '%';
+        statusText.textContent = Math.round(progress) + '%';
+        
+        if (progress < 100) {
+            setTimeout(updateProgress, interval);
+        } else {
+            // Hide loading and switch to feed (after signup)
+            setTimeout(() => {
+                loadingModal.classList.add('hidden');
+                // Remove hidden class from mainContent to make it visible
+                if (mainContent) {
+                    mainContent.classList.remove('hidden');
+                }
+                // Simulate clicking the feed tab to switch to feed (no default logic, no hiding)
+                if (practiceTab) {
+                    practiceTab.click();
+                }
+                // Load news feed right away after switching to feed
+                loadFinanceNews();
+                startContinuousNewsUpdates();
+            }, 500);
+        }
+    };
+    
+    updateProgress();
+}
+
 // Complete survey and show dashboard
 function completeSurvey() {
     hideAllSurveyScreens();
+    
+    // Clear chatbot history for new user/registration
+    clearChatbotHistory();
     
     // Save survey data to user account (user is already authenticated)
     savePersonalStatsToAccount();
@@ -574,8 +728,8 @@ function completeSurvey() {
     // Update sidebar with user info
     updateSidebarWithUser();
     
-    // Show main dashboard
-    showMainDashboard();
+    // Show fake loading screen, then dashboard
+    runFakeCourseLoading();
     
     console.log('Survey completed:', surveyData);
 }
@@ -602,9 +756,41 @@ function updateSidebarWithUser() {
 function showMainDashboard() {
     if (nameModal) nameModal.style.display = 'none';
     hideAllSurveyScreens();
+    
+    // IMPORTANT: Remove hidden class from mainContent FIRST, before switching windows
+    // This ensures the content is visible when we switch to it
     if (mainContent) {
         mainContent.classList.remove('hidden');
     }
+    
+    // Restore last active window if it exists, otherwise default to feed
+    // IMPORTANT: Only restore, don't save anything here (saving happens in switchMainWindow)
+    try {
+        const lastActiveWindow = localStorage.getItem('lastActiveWindow');
+        console.log('[showMainDashboard] Checking for saved window. Found:', lastActiveWindow);
+        console.log('[showMainDashboard] Current visible windows:', {
+            mainScreen: mainScreen?.style.display,
+            coursesWindow: coursesWindow?.style.display,
+            quizzesWindow: quizzesWindow?.style.display
+        });
+        
+        if (lastActiveWindow) {
+            // User has a saved window - restore it (courses, quizzes, etc.)
+            console.log('[showMainDashboard] ✅ Restoring saved window:', lastActiveWindow);
+            // Use switchMainWindow to restore, which will also save it again (idempotent)
+            switchMainWindow(lastActiveWindow);
+        } else {
+            // No saved window - default to feed (first-time users)
+            // This will save 'feed' to localStorage, which is fine for first-time users
+            console.log('[showMainDashboard] ⚠️ No saved window found. Defaulting to feed.');
+            switchMainWindow('feed');
+        }
+    } catch (error) {
+        console.error('[showMainDashboard] ❌ Error restoring active window:', error);
+        // Fallback to feed on error
+        switchMainWindow('feed');
+    }
+    
     loadFinanceNews();
     startContinuousNewsUpdates();
     
@@ -622,18 +808,32 @@ function showMainDashboard() {
 
 // Load the user's custom course (or assign a premade) and display its lessons
 async function loadCourseLessons() {
+    const token = localStorage.getItem('authToken');
+    const listView = document.getElementById('lessonsListView');
+    const tabsContainer = document.getElementById('lessonsTabs');
+    const coursesHeader = document.getElementById('coursesHeader');
+
+    if (!listView || !tabsContainer) return;
+
+    // Hide header during loading
+    if (coursesHeader) {
+        coursesHeader.classList.add('hidden');
+    }
+
+    // Show loading indicator immediately
+    tabsContainer.innerHTML = `
+        <div class="lessons-loading">
+            <div class="lessons-loading-spinner"></div>
+            <p class="lessons-loading-text">Loading lessons...</p>
+        </div>
+    `;
+
+    if (!token) {
+        tabsContainer.innerHTML = '<p class="lesson-placeholder">Please log in to view your course.</p>';
+        return;
+    }
+
     try {
-        const token = localStorage.getItem('authToken');
-        const listView = document.getElementById('lessonsListView');
-        const tabsContainer = document.getElementById('lessonsTabs');
-
-        if (!listView || !tabsContainer) return;
-
-        if (!token) {
-            tabsContainer.innerHTML = '<p class="lesson-placeholder">Please log in to view your course.</p>';
-            return;
-        }
-
         const response = await fetch(`${BACKEND_BASE_URL}/api/courses/user/custom`, {
             method: 'GET',
             headers: {
@@ -652,68 +852,199 @@ async function loadCourseLessons() {
             return;
         }
 
-        displayCourseLessons(result.course);
+        // Debug: Log quizProgress to verify it's being fetched
+        console.log('[Lessons] Quiz progress from backend:', result.quizProgress);
+        
+        displayCourseLessons(result.course, result.quizProgress || {}); // Pass quizProgress
+        
+        // Reset chatbot conversation when loading new course
+        clearChatbotHistory();
     } catch (error) {
         console.error('Error loading course:', error);
-        const tabsContainer = document.getElementById('lessonsTabs');
-        if (tabsContainer) {
-            tabsContainer.innerHTML = `<p class="lesson-placeholder">Error loading course: ${error.message}</p>`;
-        }
+        tabsContainer.innerHTML = `<p class="lesson-placeholder">Error loading course: ${error.message}</p>`;
     }
 }
 
 // Display list of lessons and wire up click handlers
-function displayCourseLessons(course) {
+function displayCourseLessons(course, quizProgress = {}) {
     const tabsContainer = document.getElementById('lessonsTabs');
     const listView = document.getElementById('lessonsListView');
     const contentView = document.getElementById('lessonContentView');
+    const coursesHeader = document.getElementById('coursesHeader');
 
     if (!tabsContainer || !listView || !contentView) return;
 
     tabsContainer.innerHTML = '';
     listView.classList.remove('hidden');
     contentView.classList.add('hidden');
+    
+    // Show the header when lessons are loaded
+    if (coursesHeader) {
+        coursesHeader.classList.remove('hidden');
+    }
+
+    // Merge local quizProgress (from recent saves) with fetched quizProgress
+    // This ensures we have the latest data even if backend hasn't updated yet
+    if (window.quizProgress) {
+        quizProgress = { ...quizProgress, ...window.quizProgress };
+    }
+    
+    // Debug: Log merged quizProgress
+    console.log('[Lessons] Merged quiz progress:', quizProgress);
 
     const lessons = course.lessons || [];
     window.currentCourse = course;
     window.allLessons = lessons;
+    window.lessonQuizProgress = quizProgress; // Store for later use
 
     lessons.forEach((lesson, index) => {
+        const lessonNumber = index + 1; // 1-indexed for display
         const tab = document.createElement('div');
-        tab.className = 'lesson-tab';
-        const title = lesson.topic || lesson.title || lesson.subtopic || `Lesson ${index + 1}`;
-        tab.textContent = `${index + 1}. ${title}`;
+        const title = lesson.topic || lesson.title || lesson.subtopic || `Lesson ${lessonNumber}`;
+        
+        // Check if lesson is unlocked
+        // Lesson 1 is always unlocked
+        // Lesson N (N > 1) requires Quiz (N-1) to be passed
+        let isUnlocked = false;
+        if (lessonNumber === 1) {
+            isUnlocked = true; // Lesson 1 is always unlocked
+        } else {
+            // Check if Quiz (lessonNumber - 1) is passed
+            const requiredQuizNumber = lessonNumber - 1;
+            const quizProgressData = quizProgress[requiredQuizNumber.toString()];
+            isUnlocked = quizProgressData?.passed === true;
+            
+            // Debug: Log unlock check for each lesson
+            console.log(`[Lessons] Lesson ${lessonNumber}: requiredQuiz=${requiredQuizNumber}, progress=`, quizProgressData, `unlocked=${isUnlocked}`);
+        }
+        
+        // Set tab class and content based on lock status
+        if (isUnlocked) {
+            tab.className = 'lesson-tab';
+            tab.textContent = `${lessonNumber}. ${title}`;
+        } else {
+            tab.className = 'lesson-tab lesson-tab-locked';
+            // For locked lessons, show lock icon and message
+            const requiredQuizNumber = lessonNumber - 1;
+            tab.innerHTML = `
+                <span style="display: flex; align-items: center; gap: 0.5rem; width: 100%;">
+                    <span style="opacity: 0.5;">🔒</span>
+                    <span style="opacity: 0.6;">${lessonNumber}. ${escapeHtml(title)}</span>
+                </span>
+                <span style="font-size: 0.85rem; color: var(--text-secondary); opacity: 0.7; margin-top: 0.25rem; display: block;">
+                    Pass Quiz ${requiredQuizNumber} to access this lesson
+                </span>
+            `;
+        }
+        
         tab.dataset.lessonIndex = index;
+        tab.dataset.isUnlocked = isUnlocked;
 
-        tab.addEventListener('click', () => {
-            document.querySelectorAll('.lesson-tab').forEach(t => t.classList.remove('active'));
-            tab.classList.add('active');
-            displayLessonContent(lesson);
-            listView.classList.add('hidden');
-            contentView.classList.remove('hidden');
-        });
+        // Only allow clicking if unlocked
+        if (isUnlocked) {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.lesson-tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                displayLessonContent(lesson, index);
+            });
+        } else {
+            // Locked lessons: add cursor style and prevent interaction
+            tab.style.cursor = 'not-allowed';
+            tab.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                // Optionally show a tooltip or message
+            });
+        }
 
         tabsContainer.appendChild(tab);
     });
 
-    const backButton = document.getElementById('lessonBackButton');
-    if (backButton) {
-        backButton.onclick = () => {
-            listView.classList.remove('hidden');
-            contentView.classList.add('hidden');
-        };
+    // Restore saved lesson if it exists (after page reload) - but only if it's unlocked
+    const savedLessonIndex = localStorage.getItem('lastActiveLessonIndex');
+    if (savedLessonIndex !== null && window.allLessons) {
+        const index = parseInt(savedLessonIndex, 10);
+        if (index >= 0 && index < window.allLessons.length) {
+            const lessonNumber = index + 1;
+            let isUnlocked = false;
+            if (lessonNumber === 1) {
+                isUnlocked = true;
+            } else {
+                const requiredQuizNumber = lessonNumber - 1;
+                const quizProgressData = quizProgress[requiredQuizNumber.toString()];
+                isUnlocked = quizProgressData?.passed === true;
+            }
+            
+            if (isUnlocked) {
+                const savedLesson = window.allLessons[index];
+                displayLessonContent(savedLesson, index);
+            } else {
+                // Clear saved lesson if it's locked
+                localStorage.removeItem('lastActiveLessonIndex');
+            }
+        }
     }
+
+    // Back button is now handled in displayLessonContent for fullscreen modal
 }
 
 // Display a single lesson's content
-function displayLessonContent(lesson) {
-    const contentContainer = document.getElementById('lessonContent');
-    if (!contentContainer) return;
-
+function displayLessonContent(lesson, lessonIndex) {
+    const fullscreenContainer = document.getElementById('fullscreenLessonContainer');
+    const fullscreenContent = document.getElementById('fullscreenLessonContent');
+    const backButton = document.getElementById('fullscreenLessonBackBtn');
+    
+    // Store current lesson for chatbot context
+    if (lesson) {
+        try {
+            sessionStorage.setItem('currentLesson', JSON.stringify({
+                topic: lesson.topic || lesson.title || lesson.subtopic || 'Untitled Lesson',
+                content: lesson.content || ''
+            }));
+            
+            // Save lesson index to localStorage for page reload
+            if (lessonIndex !== undefined && lessonIndex !== null) {
+                localStorage.setItem('lastActiveLessonIndex', lessonIndex.toString());
+            } else if (window.allLessons) {
+                // Fallback: find index if not provided
+                const foundIndex = window.allLessons.findIndex(l => {
+                    const lessonTitle = lesson.topic || lesson.title || lesson.subtopic || '';
+                    const lTitle = l.topic || l.title || l.subtopic || '';
+                    return lessonTitle === lTitle;
+                });
+                if (foundIndex !== -1) {
+                    localStorage.setItem('lastActiveLessonIndex', foundIndex.toString());
+                }
+            }
+        } catch (error) {
+            console.error('Error storing current lesson:', error);
+        }
+    }
+    
+    if (!fullscreenContainer || !fullscreenContent) {
+        // Fallback to old method if elements don't exist
+        const contentContainer = document.getElementById('lessonContent');
+        if (!contentContainer) return;
+        
+        const title = lesson.topic || lesson.title || lesson.subtopic || 'Untitled Lesson';
+        const body = formatLessonContent(lesson.content || '');
+        
+        contentContainer.innerHTML = `
+            <div class="lesson-header">
+                <h2 class="lesson-title">${escapeHtml(title)}</h2>
+            </div>
+            <div class="lesson-body">
+                ${body}
+            </div>
+        `;
+        return;
+    }
+    
     const title = lesson.topic || lesson.title || lesson.subtopic || 'Untitled Lesson';
     const body = formatLessonContent(lesson.content || '');
-
-    contentContainer.innerHTML = `
+    
+    // Set lesson content in fullscreen modal
+    fullscreenContent.innerHTML = `
         <div class="lesson-header">
             <h2 class="lesson-title">${escapeHtml(title)}</h2>
         </div>
@@ -721,35 +1052,1088 @@ function displayLessonContent(lesson) {
             ${body}
         </div>
     `;
+    
+    // Show fullscreen modal
+    fullscreenContainer.classList.remove('hidden');
+    
+    // Handle back button - hide modal and return to lessons list
+    if (backButton) {
+        backButton.onclick = () => {
+            fullscreenContainer.classList.add('hidden');
+            // Clear chatbot history when exiting lesson
+            clearChatbotHistory();
+            // Clear current lesson
+            try {
+                sessionStorage.removeItem('currentLesson');
+                // Clear saved lesson index when going back to list
+                localStorage.removeItem('lastActiveLessonIndex');
+            } catch (error) {
+                console.error('Error clearing current lesson:', error);
+            }
+        };
+    }
+    
+    // Initialize chatbot when lesson is displayed
+    setTimeout(() => {
+        initializeLessonChatbot();
+    }, 100);
+}
+
+// =========================
+// Course Chatbot
+// =========================
+
+function initializeLessonChatbot() {
+    const chatbotInput = document.getElementById('chatbotInput');
+    const chatbotSendBtn = document.getElementById('chatbotSendBtn');
+
+    if (!chatbotInput || !chatbotSendBtn) return;
+
+    // Remove existing listeners to prevent duplicates
+    const newInput = chatbotInput.cloneNode(true);
+    const newBtn = chatbotSendBtn.cloneNode(true);
+    chatbotInput.parentNode.replaceChild(newInput, chatbotInput);
+    chatbotSendBtn.parentNode.replaceChild(newBtn, chatbotSendBtn);
+
+    // Send on Enter key
+    newInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendChatbotMessage();
+        }
+    });
+
+    // Send on button click
+    newBtn.addEventListener('click', sendChatbotMessage);
+}
+
+async function sendChatbotMessage() {
+    const chatbotInput = document.getElementById('chatbotInput');
+    const chatbotSendBtn = document.getElementById('chatbotSendBtn');
+    const chatbotMessages = document.getElementById('chatbotMessages');
+    const token = localStorage.getItem('authToken');
+
+    if (!chatbotInput || !chatbotMessages || !token) return;
+
+    const message = chatbotInput.value.trim();
+    if (!message) return;
+
+    // Disable input while sending
+    chatbotInput.disabled = true;
+    chatbotSendBtn.disabled = true;
+
+    // Add user message to UI
+    addChatbotMessage('user', message);
+    chatbotInput.value = '';
+
+    // Show loading indicator
+    const loadingId = addChatbotMessage('assistant', 'Thinking...', true);
+
+    try {
+        // Get conversation history from sessionStorage
+        const conversationHistory = getChatbotHistory();
+        
+        // Get current lesson for context
+        let currentLesson = null;
+        try {
+            const stored = sessionStorage.getItem('currentLesson');
+            if (stored) {
+                currentLesson = JSON.parse(stored);
+            }
+        } catch (error) {
+            console.error('Error loading current lesson:', error);
+        }
+        
+        const response = await fetch(`${BACKEND_BASE_URL}/api/courses/chatbot`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                message: message,
+                conversationHistory: conversationHistory,
+                currentLesson: currentLesson
+            })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.message || 'Failed to get response');
+        }
+
+        const result = await response.json();
+        
+        if (result.success) {
+            // Remove loading message
+            const loadingMsg = document.getElementById(loadingId);
+            if (loadingMsg) loadingMsg.remove();
+
+            // Add assistant response
+            addChatbotMessage('assistant', result.response);
+
+            // Update conversation history in sessionStorage
+            conversationHistory.push(
+                { role: 'user', content: message },
+                { role: 'assistant', content: result.response }
+            );
+            saveChatbotHistory(conversationHistory);
+        } else {
+            throw new Error(result.message || 'Failed to get response');
+        }
+    } catch (error) {
+        console.error('Chatbot error:', error);
+        console.error('Error details:', {
+            message: error.message,
+            stack: error.stack
+        });
+        // Remove loading message
+        const loadingMsg = document.getElementById(loadingId);
+        if (loadingMsg) loadingMsg.remove();
+        
+        // Show more specific error message
+        let errorMessage = 'Sorry, I encountered an error. Please try again.';
+        if (error.message) {
+            errorMessage = `Error: ${error.message}`;
+        }
+        addChatbotMessage('assistant', errorMessage);
+    } finally {
+        chatbotInput.disabled = false;
+        chatbotSendBtn.disabled = false;
+        chatbotInput.focus();
+    }
+}
+
+function addChatbotMessage(role, content, isLoading = false) {
+    const chatbotMessages = document.getElementById('chatbotMessages');
+    if (!chatbotMessages) return;
+
+    const messageId = isLoading ? 'chatbot-msg-' + Date.now() : undefined;
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `chatbot-message ${role}`;
+    if (messageId) messageDiv.id = messageId;
+
+    const bubble = document.createElement('div');
+    bubble.className = 'chatbot-message-bubble';
+    
+    // Process markdown for assistant messages
+    if (role === 'assistant' && !isLoading) {
+        bubble.innerHTML = formatChatbotMarkdown(content);
+    } else {
+        bubble.textContent = content;
+    }
+
+    messageDiv.appendChild(bubble);
+    chatbotMessages.appendChild(messageDiv);
+
+    // Scroll to bottom
+    chatbotMessages.scrollTop = chatbotMessages.scrollHeight;
+
+    return messageId;
+}
+
+// Simple markdown formatter for chatbot messages
+function formatChatbotMarkdown(text) {
+    if (!text) return '';
+    
+    // Escape HTML first
+    let html = escapeHtml(text);
+    
+    // Process bold **text** or __text__
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/__(.+?)__/g, '<strong>$1</strong>');
+    
+    // Process italic *text* or _text_ (but not if it's part of **text**)
+    html = html.replace(/(?<!\*)\*(?!\*)([^*]+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>');
+    html = html.replace(/(?<!_)_(?!_)([^_]+?)(?<!_)_(?!_)/g, '<em>$1</em>');
+    
+    // Process inline code `code`
+    html = html.replace(/`([^`]+?)`/g, '<code>$1</code>');
+    
+    // Process headings (### Heading, ## Heading, # Heading)
+    html = html.replace(/^###\s+(.+)$/gm, '<h3>$1</h3>');
+    html = html.replace(/^##\s+(.+)$/gm, '<h2>$1</h2>');
+    html = html.replace(/^#\s+(.+)$/gm, '<h1>$1</h1>');
+    
+    // Process unordered lists (- item or * item)
+    const lines = html.split('\n');
+    const processedLines = [];
+    let inList = false;
+    
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const listMatch = line.match(/^[-*]\s+(.+)$/);
+        
+        if (listMatch) {
+            if (!inList) {
+                processedLines.push('<ul>');
+                inList = true;
+            }
+            processedLines.push(`<li>${listMatch[1]}</li>`);
+        } else {
+            if (inList) {
+                processedLines.push('</ul>');
+                inList = false;
+            }
+            processedLines.push(line);
+        }
+    }
+    
+    if (inList) {
+        processedLines.push('</ul>');
+    }
+    
+    html = processedLines.join('\n');
+    
+    // Process ordered lists (1. item)
+    html = html.replace(/^(\d+)\.\s+(.+)$/gm, '<li>$2</li>');
+    // Wrap consecutive <li> tags in <ol>
+    html = html.replace(/(<li>.*<\/li>(?:\n<li>.*<\/li>)*)/g, (match) => {
+        if (match.includes('</li>') && !match.includes('<ol>')) {
+            return '<ol>' + match + '</ol>';
+        }
+        return match;
+    });
+    
+    // Process line breaks (double newline = paragraph, single newline = <br>)
+    html = html.replace(/\n\n/g, '</p><p>');
+    html = html.replace(/\n/g, '<br>');
+    
+    // Wrap in paragraph tags if needed
+    if (!html.trim().startsWith('<h') && !html.trim().startsWith('<p>') && !html.trim().startsWith('<ul>') && !html.trim().startsWith('<ol>')) {
+        html = '<p>' + html + '</p>';
+    }
+    
+    return html;
+}
+
+// =========================
+// Quizzes: Load & Display
+// =========================
+
+// Load quizzes for the user based on their course pace
+async function loadQuizzes() {
+    const token = localStorage.getItem('authToken');
+    const listView = document.getElementById('quizzesListView');
+    const tabsContainer = document.getElementById('quizzesTabs');
+    const quizzesHeader = document.getElementById('quizzesHeader');
+
+    if (!listView || !tabsContainer) return;
+
+    // Hide header during loading
+    if (quizzesHeader) {
+        quizzesHeader.classList.add('hidden');
+    }
+
+    // Show loading indicator
+    tabsContainer.innerHTML = `
+        <div class="lessons-loading">
+            <div class="lessons-loading-spinner"></div>
+            <p class="lessons-loading-text">Loading quizzes...</p>
+        </div>
+    `;
+
+    if (!token) {
+        tabsContainer.innerHTML = '<p class="lesson-placeholder">Please log in to view your quizzes.</p>';
+        return;
+    }
+
+    try {
+        const response = await fetch(`${BACKEND_BASE_URL}/api/courses/quizzes/user/custom`, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(data.message || `HTTP ${response.status}`);
+        }
+
+        const result = await response.json();
+        if (!result.success || !result.quizzes || result.quizzes.length === 0) {
+            tabsContainer.innerHTML = '<p class="lesson-placeholder">No quizzes found for your course pace.</p>';
+            return;
+        }
+
+        // Store pace globally
+        window.currentQuizPace = result.pace;
+        displayQuizzes(result.quizzes, result.pace, result.quizProgress || {});
+    } catch (error) {
+        console.error('Error loading quizzes:', error);
+        tabsContainer.innerHTML = `<p class="lesson-placeholder">Error loading quizzes: ${error.message}</p>`;
+    }
+}
+
+function displayQuizzes(quizzes, pace, quizProgress = {}) {
+    const tabsContainer = document.getElementById('quizzesTabs');
+    const listView = document.getElementById('quizzesListView');
+    const quizzesHeader = document.getElementById('quizzesHeader');
+
+    if (!tabsContainer || !listView) return;
+
+    // Store pace globally
+    window.currentQuizPace = pace;
+    // Store quiz progress globally for access in displayQuiz
+    window.quizProgress = quizProgress;
+
+    tabsContainer.innerHTML = '';
+    listView.classList.remove('hidden');
+    
+    // Show header when quizzes are loaded
+    if (quizzesHeader) {
+        quizzesHeader.classList.remove('hidden');
+    }
+
+    // Sort quizzes by quizNumber (should already be sorted, but ensure)
+    const sortedQuizzes = quizzes.sort((a, b) => a.quizNumber - b.quizNumber);
+    
+    // Store quizzes globally for restoration
+    window.allQuizzes = sortedQuizzes;
+
+    sortedQuizzes.forEach((quiz) => {
+        const tab = document.createElement('div');
+        
+        // Check if quiz is unlocked
+        // Quiz 1 is always unlocked
+        // Quiz N (N > 1) requires Quiz (N-1) to be passed
+        let isUnlocked = false;
+        if (quiz.quizNumber === 1) {
+            isUnlocked = true; // Quiz 1 is always unlocked
+        } else {
+            // Check if Quiz (quizNumber - 1) is passed
+            const requiredQuizNumber = quiz.quizNumber - 1;
+            const requiredProgress = quizProgress[requiredQuizNumber.toString()];
+            isUnlocked = requiredProgress?.passed === true;
+        }
+        
+        // Check if quiz is passed
+        const progress = quizProgress[quiz.quizNumber.toString()];
+        const isPassed = progress?.passed === true;
+        
+        // Set tab class and content based on lock status
+        if (isUnlocked) {
+            tab.className = 'lesson-tab';
+            // Add checkmark icon and "Passed!" text if passed
+            tab.innerHTML = `
+                <span style="display: flex; align-items: center; gap: 0.5rem; width: 100%;">
+                    <span>Quiz ${quiz.quizNumber}</span>
+                    ${isPassed ? '<span style="display: flex; align-items: center; gap: 0.4rem; color: #4CAF50; font-weight: bold;"><span style="font-size: 1.2rem;">✓</span><span>Passed!</span></span>' : ''}
+                </span>
+            `;
+        } else {
+            tab.className = 'lesson-tab lesson-tab-locked';
+            // For locked quizzes, show only lock icon (no message)
+            tab.innerHTML = `
+                <span style="display: flex; align-items: center; gap: 0.5rem; width: 100%;">
+                    <span style="opacity: 0.5;">🔒</span>
+                    <span style="opacity: 0.6;">Quiz ${quiz.quizNumber}</span>
+                </span>
+            `;
+        }
+        
+        tab.dataset.quizNumber = quiz.quizNumber;
+        tab.dataset.isPassed = isPassed;
+        tab.dataset.isUnlocked = isUnlocked;
+
+        // Only allow clicking if unlocked
+        if (isUnlocked) {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.lesson-tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                displayQuiz(quiz, pace, progress);
+            });
+        } else {
+            // Locked quizzes: add cursor style and prevent interaction
+            tab.style.cursor = 'not-allowed';
+            tab.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                // Optionally show a tooltip or message
+            });
+        }
+
+        tabsContainer.appendChild(tab);
+    });
+    
+    // Restore saved quiz if it exists (after page reload) - but only if it's unlocked
+    const savedQuizNumber = localStorage.getItem('lastActiveQuizNumber');
+    if (savedQuizNumber !== null && window.allQuizzes) {
+        const quizNumber = parseInt(savedQuizNumber, 10);
+        const savedQuiz = window.allQuizzes.find(q => q.quizNumber === quizNumber);
+        if (savedQuiz) {
+            // Check if saved quiz is unlocked
+            let isUnlocked = false;
+            if (quizNumber === 1) {
+                isUnlocked = true;
+            } else {
+                const requiredQuizNumber = quizNumber - 1;
+                const requiredProgress = quizProgress[requiredQuizNumber.toString()];
+                isUnlocked = requiredProgress?.passed === true;
+            }
+            
+            if (isUnlocked) {
+                // Get progress for saved quiz
+                const savedProgress = quizProgress[quizNumber.toString()];
+                // Open the saved quiz with its progress
+                displayQuiz(savedQuiz, pace, savedProgress);
+            } else {
+                // Clear saved quiz if it's locked
+                localStorage.removeItem('lastActiveQuizNumber');
+            }
+        }
+    }
+}
+
+function displayQuiz(quiz, pace, progress = null) {
+    const fullscreenContainer = document.getElementById('fullscreenQuizContainer');
+    const fullscreenContent = document.getElementById('fullscreenQuizContent');
+    const backButton = document.getElementById('fullscreenQuizBackBtn');
+    
+    if (!fullscreenContainer || !fullscreenContent) return;
+    
+    // Store pace with quiz
+    quiz.pace = pace || window.currentQuizPace;
+    
+    // Check if quiz is passed (use progress parameter or check global quizProgress)
+    const isPassed = progress?.passed === true;
+    const userAnswers = progress?.answers || []; // User's actual selected answers
+    
+    // Save quiz number to localStorage for page reload
+    try {
+        localStorage.setItem('lastActiveQuizNumber', quiz.quizNumber.toString());
+    } catch (error) {
+        console.error('Error saving quiz number:', error);
+    }
+    
+    // Create quiz HTML
+    let quizHTML = `
+        <div class="quiz-header">
+            <h2 class="quiz-title">Quiz ${quiz.quizNumber}</h2>
+        </div>
+        <div class="quiz-questions" id="quizQuestions">
+    `;
+
+    quiz.questions.forEach((question, index) => {
+        const userSelectedIndex = isPassed ? (userAnswers[index] !== undefined && userAnswers[index] !== -1 ? userAnswers[index] : null) : null;
+        const correctIndex = question.correctIndex;
+        const isCorrect = userSelectedIndex === correctIndex;
+        
+        quizHTML += `
+            <div class="quiz-question" data-question-index="${index}">
+                <h3 class="question-text">${index + 1}. ${escapeHtml(question.question)}</h3>
+                <div class="question-choices">
+        `;
+        
+        question.choices.forEach((choice, choiceIndex) => {
+            const isSelected = isPassed && userSelectedIndex === choiceIndex;
+            const isCorrectAnswer = choiceIndex === correctIndex;
+            const isUserCorrect = isPassed && isSelected && isCorrect;
+            const isUserWrong = isPassed && isSelected && !isCorrect;
+            
+            // Determine CSS classes for highlighting
+            let choiceClass = 'choice-label';
+            if (isPassed) {
+                if (isUserCorrect) {
+                    choiceClass += ' quiz-answer-correct'; // User got it right
+                } else if (isUserWrong) {
+                    choiceClass += ' quiz-answer-wrong'; // User got it wrong
+                } else if (isCorrectAnswer && !isSelected) {
+                    choiceClass += ' quiz-answer-missed'; // Correct answer user didn't select (optional visual)
+                }
+            }
+            
+            quizHTML += `
+                <label class="${choiceClass}">
+                    <input type="radio" 
+                           name="question-${index}" 
+                           value="${choiceIndex}"
+                           class="choice-radio"
+                           ${isSelected ? 'checked' : ''}
+                           ${isPassed ? 'disabled' : ''}>
+                    <span class="choice-text">${escapeHtml(choice)}</span>
+                </label>
+            `;
+        });
+        
+        quizHTML += `
+                </div>
+            </div>
+        `;
+    });
+
+    quizHTML += `
+        </div>
+    `;
+    
+    // Only show Submit button if not passed
+    if (!isPassed) {
+        quizHTML += `
+        <div class="quiz-submit-container">
+            <button class="quiz-submit-btn" id="quizSubmitBtn" data-quiz-number="${quiz.quizNumber}">
+                Submit Quiz
+            </button>
+        </div>
+        `;
+    } else {
+        // Show "You have passed this quiz" message
+        quizHTML += `
+        <div class="quiz-passed-message" style="padding: 1.5rem; background: rgba(76, 175, 80, 0.1); border-radius: 10px; border: 1px solid #4CAF50; text-align: center; margin-top: 2rem;">
+            <p style="color: #4CAF50; font-size: 1.1rem; font-weight: 600; margin: 0;">✓ You have passed this quiz.</p>
+        </div>
+        `;
+    }
+    
+    quizHTML += `
+        <div class="quiz-results hidden" id="quizResults">
+            <h3 class="results-title">Quiz Results</h3>
+            <p class="results-score" id="resultsScore"></p>
+        </div>
+    `;
+
+    fullscreenContent.innerHTML = quizHTML;
+    fullscreenContainer.classList.remove('hidden');
+    
+    // Handle back button
+    if (backButton) {
+        backButton.onclick = () => {
+            fullscreenContainer.classList.add('hidden');
+            // Reset quiz state
+            const resultsDiv = document.getElementById('quizResults');
+            if (resultsDiv) resultsDiv.classList.add('hidden');
+            // Clear saved quiz number when going back to list
+            try {
+                localStorage.removeItem('lastActiveQuizNumber');
+            } catch (error) {
+                console.error('Error clearing quiz number:', error);
+            }
+        };
+    }
+
+    // Handle submit button (only if not passed)
+    if (!isPassed) {
+        const submitBtn = document.getElementById('quizSubmitBtn');
+        if (submitBtn) {
+            submitBtn.onclick = () => {
+                submitQuiz(quiz);
+            };
+        }
+    }
+}
+
+function submitQuiz(quiz) {
+    const questions = quiz.questions;
+    let correctCount = 0;
+    let totalQuestions = questions.length;
+    const pace = quiz.pace || window.currentQuizPace;
+    
+    // Collect user's selected answers
+    const userAnswers = [];
+
+    questions.forEach((question, index) => {
+        const selectedRadio = document.querySelector(`input[name="question-${index}"]:checked`);
+        const selectedIndex = selectedRadio ? parseInt(selectedRadio.value, 10) : null;
+        userAnswers.push(selectedIndex !== null ? selectedIndex : -1); // -1 means no answer selected
+        
+        if (selectedIndex === question.correctIndex) {
+            correctCount++;
+        }
+    });
+
+    // Determine passing criteria based on pace
+    let passed = false;
+    if (pace === 20) {
+        // 20 paced: Must be perfect (5/5)
+        passed = correctCount === totalQuestions;
+    } else {
+        // 5, 10, 15 paced: Allow 1 mistake
+        passed = correctCount >= (totalQuestions - 1);
+    }
+
+    // Disable all radio buttons after submission
+    document.querySelectorAll('.choice-radio').forEach(radio => {
+        radio.disabled = true;
+    });
+
+    // Disable submit button
+    const submitBtn = document.getElementById('quizSubmitBtn');
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Quiz Submitted';
+    }
+
+    // Store current submission answers temporarily for review
+    window.currentQuizSubmission = {
+        quizNumber: quiz.quizNumber,
+        userAnswers: userAnswers,
+        passed: passed,
+        correctCount: correctCount,
+        totalQuestions: totalQuestions,
+        quiz: quiz // Store full quiz object for review
+    };
+
+    // Show appropriate modal (pass or fail) and save progress
+    if (passed) {
+        // Save quiz progress (passed + user's answers) to backend
+        saveQuizProgress(quiz.quizNumber, pace, true, userAnswers).then(() => {
+            showQuizPassModal(correctCount, totalQuestions, quiz.quizNumber, quiz);
+        });
+    } else {
+        // Save quiz progress (failed + user's answers) to backend
+        saveQuizProgress(quiz.quizNumber, pace, false, userAnswers).then(() => {
+            showQuizFailModal(correctCount, totalQuestions, quiz);
+        });
+    }
+}
+
+// New function: Save quiz progress to backend
+async function saveQuizProgress(quizNumber, pace, passed, answers) {
+    try {
+        const token = localStorage.getItem('authToken');
+        if (!token) {
+            console.error('No auth token found');
+            return;
+        }
+        
+        const response = await fetch(`${BACKEND_BASE_URL}/api/courses/quizzes/progress`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                quizNumber: quizNumber,
+                pace: pace,
+                passed: passed,
+                answers: answers
+            })
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            console.error('Error saving quiz progress:', errorData.message || `HTTP ${response.status}`);
+            return;
+        }
+        
+        const result = await response.json();
+        if (result.success) {
+            console.log('Quiz progress saved:', quizNumber, passed);
+            // Update global quizProgress for immediate UI update
+            if (!window.quizProgress) window.quizProgress = {};
+            window.quizProgress[quizNumber.toString()] = {
+                passed: passed,
+                answers: answers,
+                pace: pace
+            };
+        }
+    } catch (error) {
+        console.error('Error saving quiz progress:', error);
+    }
+}
+
+function showQuizPassModal(correctCount, totalQuestions, quizNumber, quiz) {
+    const modal = document.getElementById('quizPassModal');
+    const scoreText = document.getElementById('passScore');
+    const backBtn = document.getElementById('quizPassBackBtn');
+    const reviewBtn = document.getElementById('quizPassReviewBtn');
+    
+    if (modal && scoreText) {
+        scoreText.textContent = `${correctCount} / ${totalQuestions} correct`;
+        modal.classList.remove('hidden');
+        
+        if (backBtn) {
+            backBtn.onclick = async () => {
+                modal.classList.add('hidden');
+                // Clear temporary submission data
+                window.currentQuizSubmission = null;
+                // Clear saved quiz number so we don't auto-open a quiz
+                try {
+                    localStorage.removeItem('lastActiveQuizNumber');
+                } catch (error) {
+                    console.error('Error clearing quiz number:', error);
+                }
+                // Close quiz modal and return to quiz list
+                const quizContainer = document.getElementById('fullscreenQuizContainer');
+                if (quizContainer) {
+                    quizContainer.classList.add('hidden');
+                }
+                // Ensure quizzes list view is visible
+                const listView = document.getElementById('quizzesListView');
+                if (listView) {
+                    listView.classList.remove('hidden');
+                }
+                // Reload quizzes to show updated checkmarks
+                loadQuizzes();
+                // Also reload lessons to unlock the next lesson
+                // Wait a bit to ensure backend save is complete, then reload
+                setTimeout(() => {
+                    loadCourseLessons();
+                }, 500);
+            };
+        }
+        
+        if (reviewBtn) {
+            reviewBtn.onclick = () => {
+                modal.classList.add('hidden');
+                // Open temporary review screen
+                showTemporaryQuizReview(quiz);
+            };
+        }
+    }
+}
+
+function showQuizFailModal(correctCount, totalQuestions, quiz) {
+    const modal = document.getElementById('quizFailModal');
+    const scoreText = document.getElementById('failScore');
+    const backBtn = document.getElementById('quizFailBackBtn');
+    const reviewBtn = document.getElementById('quizFailReviewBtn');
+    
+    if (modal && scoreText) {
+        scoreText.textContent = `${correctCount} / ${totalQuestions} correct`;
+        modal.classList.remove('hidden');
+        
+        if (backBtn) {
+            backBtn.onclick = () => {
+                modal.classList.add('hidden');
+                // Clear temporary submission data
+                window.currentQuizSubmission = null;
+                // Clear saved quiz number so we don't auto-open a quiz
+                try {
+                    localStorage.removeItem('lastActiveQuizNumber');
+                } catch (error) {
+                    console.error('Error clearing quiz number:', error);
+                }
+                // Close quiz modal and return to quiz list
+                const quizContainer = document.getElementById('fullscreenQuizContainer');
+                if (quizContainer) {
+                    quizContainer.classList.add('hidden');
+                }
+                // Ensure quizzes list view is visible
+                const listView = document.getElementById('quizzesListView');
+                if (listView) {
+                    listView.classList.remove('hidden');
+                }
+            };
+        }
+        
+        if (reviewBtn) {
+            reviewBtn.onclick = () => {
+                modal.classList.add('hidden');
+                // Open temporary review screen
+                showTemporaryQuizReview(quiz);
+            };
+        }
+    }
+}
+
+// New function: Show temporary review screen (from result modal)
+function showTemporaryQuizReview(quiz) {
+    const fullscreenContainer = document.getElementById('fullscreenQuizContainer');
+    const fullscreenContent = document.getElementById('fullscreenQuizContent');
+    const backButton = document.getElementById('fullscreenQuizBackBtn');
+    
+    if (!fullscreenContainer || !fullscreenContent) return;
+    
+    // Get user's answers from current submission (temporary)
+    const submission = window.currentQuizSubmission;
+    if (!submission || submission.quizNumber !== quiz.quizNumber) {
+        console.error('No submission data found for temporary review');
+        // Fallback: return to quizzes list
+        fullscreenContainer.classList.add('hidden');
+        loadQuizzes();
+        return;
+    }
+    
+    const userAnswers = submission.userAnswers;
+    
+    // Create quiz HTML for temporary review
+    let quizHTML = `
+        <div class="quiz-header">
+            <h2 class="quiz-title">Quiz ${quiz.quizNumber} - Review</h2>
+        </div>
+        <div class="quiz-questions" id="quizQuestions">
+    `;
+
+    quiz.questions.forEach((question, index) => {
+        const userSelectedIndex = userAnswers[index] !== undefined && userAnswers[index] !== -1 ? userAnswers[index] : null;
+        const correctIndex = question.correctIndex;
+        const isCorrect = userSelectedIndex === correctIndex;
+        
+        quizHTML += `
+            <div class="quiz-question" data-question-index="${index}">
+                <h3 class="question-text">${index + 1}. ${escapeHtml(question.question)}</h3>
+                <div class="question-choices">
+        `;
+        
+        question.choices.forEach((choice, choiceIndex) => {
+            const isSelected = userSelectedIndex === choiceIndex;
+            const isCorrectAnswer = choiceIndex === correctIndex;
+            const isUserCorrect = isSelected && isCorrect;
+            const isUserWrong = isSelected && !isCorrect;
+            
+            // Determine CSS classes for highlighting
+            let choiceClass = 'choice-label';
+            if (isUserCorrect) {
+                choiceClass += ' quiz-answer-correct';
+            } else if (isUserWrong) {
+                choiceClass += ' quiz-answer-wrong';
+            } else if (isCorrectAnswer && !isSelected) {
+                choiceClass += ' quiz-answer-missed';
+            }
+            
+            quizHTML += `
+                <label class="${choiceClass}">
+                    <input type="radio" 
+                           name="question-${index}" 
+                           value="${choiceIndex}"
+                           class="choice-radio"
+                           ${isSelected ? 'checked' : ''}
+                           disabled>
+                    <span class="choice-text">${escapeHtml(choice)}</span>
+                </label>
+            `;
+        });
+        
+        quizHTML += `
+                </div>
+            </div>
+        `;
+    });
+
+    quizHTML += `
+        </div>
+    `;
+    
+    // No submit button for temporary review
+    // No "You have passed" message - this is just a review
+    
+    fullscreenContent.innerHTML = quizHTML;
+    fullscreenContainer.classList.remove('hidden');
+    
+    // Handle back button - closes review and clears temporary data
+    if (backButton) {
+        backButton.onclick = () => {
+            fullscreenContainer.classList.add('hidden');
+            // Clear temporary submission data - review cannot be reopened
+            window.currentQuizSubmission = null;
+            // Clear saved quiz number so we don't auto-open a quiz
+            try {
+                localStorage.removeItem('lastActiveQuizNumber');
+            } catch (error) {
+                console.error('Error clearing quiz number:', error);
+            }
+            // Ensure quizzes list view is visible
+            const listView = document.getElementById('quizzesListView');
+            if (listView) {
+                listView.classList.remove('hidden');
+            }
+            // Return to quizzes list (this will show all quizzes, not restore a specific one)
+            loadQuizzes();
+        };
+    }
 }
 
 // Simple formatter for lesson markdown-like content
 function formatLessonContent(content) {
     if (!content) return '<p>No content available.</p>';
 
+    // Remove first two lines
+    const contentLines = content.split('\n');
+    if (contentLines.length > 2) {
+        content = contentLines.slice(2).join('\n');
+    }
+
+    // First, remove any quality review checklist text and meta-commentary
+    content = content.replace(/QUALITY REVIEW CHECKLIST:[\s\S]*?(?=\n\n|\n#|$)/gi, '');
+    content = content.replace(/QUALITY REVIEW[\s\S]*?(?=\n\n|\n#|$)/gi, '');
+    content = content.replace(/Review and improve this day trading lesson content[\s\S]*?Return the reviewed and improved content:/gi, '');
+    // Remove meta-commentary like "Thoroughness and Comprehensiveness:" etc.
+    content = content.replace(/Thoroughness and Comprehensiveness:.*$/gmi, '');
+    content = content.replace(/Clear Structure and Formatting:.*$/gmi, '');
+    content = content.replace(/Well-organized.*$/gmi, '');
+    // Remove all quality review bullet points
+    content = content.replace(/\*\*Thoroughness and Comprehensiveness:\*\*.*$/gmi, '');
+    content = content.replace(/\*\*Structure and Formatting:\*\*.*$/gmi, '');
+    content = content.replace(/\*\*Clarity and Completeness:\*\*.*$/gmi, '');
+    content = content.replace(/\*\*Organization and Flow:\*\*.*$/gmi, '');
+    content = content.replace(/\*\*Emphasis on Important Terms:\*\*.*$/gmi, '');
+    content = content.replace(/\*\*Examples and Practical Applications:\*\*.*$/gmi, '');
+    content = content.replace(/\*\*Logical Flow:\*\*.*$/gmi, '');
+    content = content.replace(/The content has been reviewed and improved.*$/gmi, '');
+    content = content.replace(/The content covers all necessary aspects.*$/gmi, '');
+    content = content.replace(/The lesson is well-structured.*$/gmi, '');
+    content = content.replace(/Concepts are explained clearly.*$/gmi, '');
+    content = content.replace(/The content flows logically.*$/gmi, '');
+    content = content.replace(/Key terms are emphasized.*$/gmi, '');
+    content = content.replace(/Relevant examples and practical applications.*$/gmi, '');
+    content = content.replace(/The lesson progresses logically.*$/gmi, '');
+    // Remove meta-commentary about lesson alignment
+    content = content.replace(/This revised lesson content[\s\S]*?day trading\./gi, '');
+    content = content.replace(/This lesson content is now aligned[\s\S]*?day trading\./gi, '');
+    content = content.replace(/This revised lesson[\s\S]*?provides a comprehensive guide[\s\S]*?day trading\./gi, '');
+    // Remove sentences starting with "This revised content..."
+    content = content.replace(/This revised content[\s\S]*?\./gi, '');
+    // Remove "This revised lesson content is now more focused..." sentences
+    content = content.replace(/This revised lesson content is now more focused[\s\S]*?day traders\./gi, '');
+    // Remove quality review checkpoint questions and answers
+    content = content.replace(/Is the content thorough and comprehensive\?[\s\S]*?Yes,.*$/gmi, '');
+    content = content.replace(/Is the structure clear with proper headings and formatting\?[\s\S]*?Yes,.*$/gmi, '');
+    content = content.replace(/Are all concepts explained clearly and completely\?[\s\S]*?Yes,.*$/gmi, '');
+    content = content.replace(/Are important terms emphasized with bold\?[\s\S]*?Yes,.*$/gmi, '');
+    content = content.replace(/Are examples and practical applications included where appropriate\?[\s\S]*?Yes,.*$/gmi, '');
+    content = content.replace(/Does the content flow logically from one section to the next\?[\s\S]*?Yes,.*$/gmi, '');
+    content = content.replace(/Is the content[\s\S]*?Yes,.*$/gmi, '');
+    content = content.replace(/Yes, the content is well-structured.*$/gmi, '');
+    content = content.replace(/Yes, each concept is explained in detail.*$/gmi, '');
+    content = content.replace(/Yes, key terms are highlighted.*$/gmi, '');
+    content = content.replace(/Yes, practical examples and applications.*$/gmi, '');
+    content = content.replace(/Yes, the lesson is logically organized.*$/gmi, '');
+    // Remove quality review checklist items (Thoroughness:, Structure:, Clarity:, etc.)
+    content = content.replace(/\*\*Thoroughness:\*\*.*$/gmi, '');
+    content = content.replace(/\*\*Structure:\*\*.*$/gmi, '');
+    content = content.replace(/\*\*Clarity:\*\*.*$/gmi, '');
+    content = content.replace(/\*\*Organization:\*\*.*$/gmi, '');
+    content = content.replace(/\*\*Emphasis:\*\*.*$/gmi, '');
+    content = content.replace(/\*\*Practical Application:\*\*.*$/gmi, '');
+    content = content.replace(/\*\*Logical Flow:\*\*.*$/gmi, '');
+    content = content.replace(/^Thoroughness:.*$/gmi, '');
+    content = content.replace(/^Structure:.*$/gmi, '');
+    content = content.replace(/^Clarity:.*$/gmi, '');
+    content = content.replace(/^Organization:.*$/gmi, '');
+    content = content.replace(/^Emphasis:.*$/gmi, '');
+    content = content.replace(/^Practical Application:.*$/gmi, '');
+    content = content.replace(/^Logical Flow:.*$/gmi, '');
+    // Remove any line starting with these checklist items (with or without dashes/bullets)
+    content = content.replace(/^[-*]\s*\*\*Thoroughness:\*\*.*$/gmi, '');
+    content = content.replace(/^[-*]\s*\*\*Structure:\*\*.*$/gmi, '');
+    content = content.replace(/^[-*]\s*\*\*Clarity:\*\*.*$/gmi, '');
+    content = content.replace(/^[-*]\s*\*\*Organization:\*\*.*$/gmi, '');
+    content = content.replace(/^[-*]\s*\*\*Emphasis:\*\*.*$/gmi, '');
+    content = content.replace(/^[-*]\s*\*\*Practical Application:\*\*.*$/gmi, '');
+    content = content.replace(/^[-*]\s*\*\*Logical Flow:\*\*.*$/gmi, '');
+    content = content.replace(/^[-*]\s*Thoroughness:.*$/gmi, '');
+    content = content.replace(/^[-*]\s*Structure:.*$/gmi, '');
+    content = content.replace(/^[-*]\s*Clarity:.*$/gmi, '');
+    content = content.replace(/^[-*]\s*Organization:.*$/gmi, '');
+    content = content.replace(/^[-*]\s*Emphasis:.*$/gmi, '');
+    content = content.replace(/^[-*]\s*Practical Application:.*$/gmi, '');
+    content = content.replace(/^[-*]\s*Logical Flow:.*$/gmi, '');
+    // Remove numbered bullet points that appear after conclusion (empty or incomplete numbered items)
+    // Remove lines that are just numbers with periods and minimal/no content (quality review checklist remnants)
+    content = content.replace(/^\d+\.\s*$/gm, ''); // Empty numbered items like "2."
+    content = content.replace(/^\d+\.\s*\*\*$/gm, ''); // Numbered items with just "**" like "2. **"
+    content = content.replace(/^\d+\.\s*\*\*\s*$/gm, ''); // Numbered items with just "** " like "2. ** "
+    // Remove everything after conclusion that contains bullet points, numbered lists, or section headers
+    const conclusionIndex = content.toLowerCase().indexOf('conclusion');
+    if (conclusionIndex !== -1) {
+        // Find the conclusion section
+        const beforeConclusion = content.substring(0, conclusionIndex);
+        let afterConclusion = content.substring(conclusionIndex);
+        
+        // Find where the actual conclusion content ends (after disclaimer if present, or after conclusion paragraph)
+        // Look for patterns that indicate end of legitimate content: "Disclaimer", end of paragraph, etc.
+        const disclaimerMatch = afterConclusion.match(/disclaimer:[\s\S]*?(?=\n\n|$)/i);
+        let conclusionEndIndex = afterConclusion.length;
+        
+        if (disclaimerMatch) {
+            // Conclusion ends after disclaimer
+            conclusionEndIndex = disclaimerMatch.index + disclaimerMatch[0].length;
+            // Find the end of the disclaimer paragraph
+            const afterDisclaimer = afterConclusion.substring(conclusionEndIndex);
+            const paragraphEnd = afterDisclaimer.search(/\n\n/);
+            if (paragraphEnd !== -1) {
+                conclusionEndIndex = conclusionEndIndex + paragraphEnd + 2;
+            }
+        } else {
+            // Find the end of the conclusion paragraph (look for double newlines or section headers)
+            const paragraphEnd = afterConclusion.search(/\n\n(?=#{1,6}\s|Related|Checklist|Quality|Review|[-*]\s|^\d+\.)/i);
+            if (paragraphEnd !== -1) {
+                conclusionEndIndex = paragraphEnd + 2; // Include the double newline
+            }
+        }
+        
+        // Keep only the conclusion content (up to disclaimer or end of paragraph)
+        const legitimateConclusion = afterConclusion.substring(0, conclusionEndIndex);
+        
+        // Remove everything after that contains bullet points, numbered lists, or section headers
+        let remainingContent = afterConclusion.substring(conclusionEndIndex);
+        
+        // Remove section headers that come after conclusion (Related Articles, Related Pages, etc.)
+        remainingContent = remainingContent.replace(/^#{1,6}\s+(Related|Checklist|Quality|Review).*$/gmi, '');
+        
+        // Remove all bullet points and numbered lists after conclusion
+        remainingContent = remainingContent.replace(/^[-*]\s+.*$/gm, '');
+        remainingContent = remainingContent.replace(/^\d+\.\s+.*$/gm, '');
+        
+        // Remove any remaining content that looks like quality review (questions with checkmarks, etc.)
+        remainingContent = remainingContent.replace(/Is the content.*$/gmi, '');
+        remainingContent = remainingContent.replace(/Are.*\?.*$/gmi, '');
+        remainingContent = remainingContent.replace(/Does.*\?.*$/gmi, '');
+        remainingContent = remainingContent.replace(/This revised lesson.*$/gmi, '');
+        
+        // Combine: conclusion + cleaned remaining (which should be mostly empty now)
+        afterConclusion = legitimateConclusion + remainingContent.replace(/\n{3,}/g, '\n\n').trim();
+        
+        content = beforeConclusion + afterConclusion;
+    }
+
     const lines = content.split('\n');
     const out = [];
     let inList = false;
 
+    // Helper function to process markdown inline formatting
+    function processInlineMarkdown(text) {
+        // Process bold **text** or __text__
+        text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+        text = text.replace(/__(.+?)__/g, '<strong>$1</strong>');
+        
+        // Process italic *text* or _text_ (but not if it's part of **text**)
+        // Use a more careful regex that doesn't break bold formatting
+        text = text.replace(/(?<!\*)\*(?!\*)([^*]+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>');
+        text = text.replace(/(?<!_)_(?!_)([^_]+?)(?<!_)_(?!_)/g, '<em>$1</em>');
+        
+        // Process inline code `code`
+        text = text.replace(/`([^`]+?)`/g, '<code>$1</code>');
+        
+        return text;
+    }
+
     for (const raw of lines) {
         const line = raw.trim();
 
-        if (line.startsWith('### ')) {
+        // Handle horizontal rules (---, ***, ___) - at least 3 characters
+        if (/^[-*_]{3,}$/.test(line)) {
             if (inList) { out.push('</ul>'); inList = false; }
-            out.push('<h3>' + escapeHtml(line.slice(4)) + '</h3>');
-        } else if (line.startsWith('## ')) {
+            out.push('<hr>');
+            continue;
+        }
+
+        // Handle all heading levels (1-6) - check for # followed by space
+        const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
+        if (headingMatch) {
             if (inList) { out.push('</ul>'); inList = false; }
-            out.push('<h2>' + escapeHtml(line.slice(3)) + '</h2>');
-        } else if (line.startsWith('# ')) {
-            if (inList) { out.push('</ul>'); inList = false; }
-            out.push('<h1>' + escapeHtml(line.slice(2)) + '</h1>');
-        } else if (/^[-*]\s/.test(line) || /^\d+\.\s/.test(line)) {
+            const level = headingMatch[1].length; // Number of # symbols
+            const headingText = headingMatch[2].trim();
+            if (headingText) {
+                const processedText = processInlineMarkdown(escapeHtml(headingText));
+                out.push(`<h${level}>${processedText}</h${level}>`);
+            }
+            continue;
+        }
+
+        // Handle lists
+        if (/^[-*]\s/.test(line) || /^\d+\.\s/.test(line)) {
             if (!inList) { inList = true; out.push('<ul>'); }
-            const text = line.replace(/^[-*]\s/, '').replace(/^\d+\.\s/, '');
-            out.push('<li>' + escapeHtml(text) + '</li>');
+            const text = line.replace(/^[-*]\s/, '').replace(/^\d+\.\s/, '').trim();
+            if (text) {
+                const processedText = processInlineMarkdown(escapeHtml(text));
+                out.push('<li>' + processedText + '</li>');
+            }
         } else if (line !== '') {
             if (inList) { out.push('</ul>'); inList = false; }
-            out.push('<p>' + escapeHtml(line) + '</p>');
+            const processedText = processInlineMarkdown(escapeHtml(line));
+            out.push('<p>' + processedText + '</p>');
         }
     }
 
@@ -814,7 +2198,27 @@ function restoreExistingUser() {
         }
         
         updateSidebarWithUser();
-        showMainDashboard();
+        
+        // Restore saved window ONLY if it exists - no default to feed
+        const lastActiveWindow = localStorage.getItem('lastActiveWindow');
+        if (lastActiveWindow) {
+            switchMainWindow(lastActiveWindow);
+            
+            // Load content for the restored window
+            if (lastActiveWindow === 'courses') {
+                loadCourseLessons();
+            } else if (lastActiveWindow === 'quizzes') {
+                loadQuizzes();
+            }
+            // Feed doesn't need loading (it loads automatically)
+        }
+        // If no saved window, do nothing - all windows stay hidden
+        
+        // Initialize chat and load messages (always, regardless of window state)
+        if (!chatInitialized) {
+            initializeChat();
+        }
+        
         return true;
     } catch (error) {
         console.warn('Unable to restore existing user:', error);
@@ -835,6 +2239,8 @@ function handleLogout() {
             window.localStorage.removeItem('authToken');
             window.localStorage.removeItem('userData');
         }
+        // Clear chatbot history
+        clearChatbotHistory();
     } catch (error) {
         console.warn('Unable to clear stored user data:', error);
     }
@@ -1868,10 +3274,26 @@ async function handleLogin() {
             const hasCompletedSurvey = await checkUserSurveyStatus(result.user.userId);
             
             if (hasCompletedSurvey) {
-                // User has completed survey - go directly to dashboard
+                // User has completed survey - show feed page (same as after signup)
                 console.log('User has completed survey - showing dashboard');
                 updateSidebarWithUser();
-                showMainDashboard();
+                
+                // Remove hidden class from mainContent to make it visible
+                if (mainContent) {
+                    mainContent.classList.remove('hidden');
+                }
+                // Switch to feed tab
+                if (practiceTab) {
+                    practiceTab.click();
+                }
+                // Load news feed right away
+                loadFinanceNews();
+                startContinuousNewsUpdates();
+                
+                // Initialize chat
+                if (!chatInitialized) {
+                    initializeChat();
+                }
             } else {
                 // User hasn't completed survey - show survey screens
                 console.log('User has not completed survey - starting survey');
@@ -2099,11 +3521,22 @@ const CHAT_REFRESH_INTERVAL = 3000; // Refresh every 3 seconds
 
 // Load chat messages from backend
 async function loadChatMessages() {
+    const chatMessagesContainer = document.getElementById('chatMessages');
+    
     try {
         const token = localStorage.getItem('authToken');
         if (!token) {
+            if (chatMessagesContainer) {
+                chatMessagesContainer.innerHTML = '<div class="chat-loading">Please log in to view messages</div>';
+            }
             return; // User not authenticated
         }
+
+        // Only show loading state if container is empty (first load)
+        if (chatMessagesContainer && chatMessagesContainer.children.length === 0) {
+            chatMessagesContainer.innerHTML = '<div class="chat-loading">Loading messages...</div>';
+        }
+        // Don't show loading if messages are already displayed
 
         const response = await fetch(`${BACKEND_BASE_URL}/api/chat/messages`, {
             method: 'GET',
@@ -2114,6 +3547,9 @@ async function loadChatMessages() {
 
         if (!response.ok) {
             console.error('Error loading chat messages:', response.status);
+            if (chatMessagesContainer) {
+                chatMessagesContainer.innerHTML = '<div class="chat-loading">Error loading messages</div>';
+            }
             return;
         }
 
@@ -2129,9 +3565,16 @@ async function loadChatMessages() {
             });
             chatMessages = Array.from(messageMap.values());
             renderChatMessages();
+        } else {
+            if (chatMessagesContainer) {
+                chatMessagesContainer.innerHTML = '<div class="chat-loading">No messages yet. Be the first to say something!</div>';
+            }
         }
     } catch (error) {
         console.error('Error loading chat messages:', error);
+        if (chatMessagesContainer) {
+            chatMessagesContainer.innerHTML = '<div class="chat-loading">Error loading messages</div>';
+        }
     }
 }
 
@@ -2385,11 +3828,14 @@ function initializeChat() {
     // Send message on button click
     sendBtn.addEventListener('click', sendBtnClickHandler);
     
-    // Start auto-refresh if user is authenticated
+    // Load messages once if user is authenticated (no auto-refresh)
     const token = localStorage.getItem('authToken');
     if (token) {
-        startChatAutoRefresh();
+        loadChatMessages(); // Load once, no auto-refresh
     }
+    
+    // Initialize fullscreen button
+    setTimeout(initializeFullscreenButton, 100);
 }
 
 // Reset chat initialization (for logout)
@@ -2663,24 +4109,21 @@ function initializeFullscreenButton() {
     }
 }
 
-// Initialize fullscreen button when chat is initialized
-const originalInitializeChat = initializeChat;
-initializeChat = function() {
-    originalInitializeChat();
-    setTimeout(initializeFullscreenButton, 100);
-};
+// Fullscreen button initialization is now handled inside initializeChat() function
 
-// Also initialize chat on page load if user is already logged in and dashboard is visible
+// Also initialize chat on page load if user is already logged in
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
-        const mainContent = document.getElementById('mainContent');
-        if (mainContent && !mainContent.classList.contains('hidden')) {
+        // Check if user is authenticated
+        const authToken = localStorage.getItem('authToken');
+        if (authToken && !chatInitialized) {
             setTimeout(initializeChat, 500);
         }
     });
 } else {
-    const mainContent = document.getElementById('mainContent');
-    if (mainContent && !mainContent.classList.contains('hidden')) {
+    // Check if user is authenticated
+    const authToken = localStorage.getItem('authToken');
+    if (authToken && !chatInitialized) {
         setTimeout(initializeChat, 500);
     }
 }

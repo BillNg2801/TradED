@@ -1,19 +1,19 @@
-5NH7ON9K
+QJ08DKSH
 
-Name: Julian
+Name: oiwikwiefwe
 
 Screen 1 - What do you want to study?
 Answer: Stocks
 
 Screen 2 - How confident do you feel about managing your personal finances?
-Answer: Intermediate
+Answer: Beginner
 
 Screen 3 - What are your main financial goals for the next 1–3 years?
 Answer:
-  1. Save for a dream purchase
+  1. Become financially self-sustaining
 
 Screen 4 - Which description best matches your current situation?
-Answer: Freelancer
+Answer: Full-time
 
 Screen 5 - How do you prefer to learn?
 Answer: 15 lessons

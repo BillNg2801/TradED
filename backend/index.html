@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FinEdu - Finance News</title>
+    <title>TradED - Finance News</title>
     <link rel="stylesheet" href="styles.css">
     <script>
         // Apply theme immediately to prevent flash of unstyled content
@@ -81,11 +81,24 @@
         <div class="modal-content survey-modal">
             <h2>How fast do you want to move through the course?</h2>
             <div class="survey-options">
-                <button class="survey-option" data-value="20 lessons">20 lessons — Slow and steady</button>
-                <button class="survey-option" data-value="15 lessons">15 lessons — Balanced pace</button>
-                <button class="survey-option" data-value="10 lessons">10 lessons — Fast and intensive</button>
-                <button class="survey-option" data-value="5 lessons">5 lessons — Crash course</button>
+                <button class="survey-option" data-value="20 lessons">20 lessons — Slow & steady: ~3 weeks</button>
+                <button class="survey-option" data-value="15 lessons">15 lessons — Balanced pace: ~16 days</button>
+                <button class="survey-option" data-value="10 lessons">10 lessons — Fast & intensive: ~10 days</button>
+                <button class="survey-option" data-value="5 lessons">5 lessons — Crash course: ~6 days</button>
             </div>
+        </div>
+    </div>
+
+    <!-- Course Customization Loading Screen -->
+    <div id="courseCustomizationLoading" class="course-customization-loading hidden">
+        <div class="course-loading-content">
+            <div class="loading-spinner"></div>
+            <h2>Preparing Your Custom Course</h2>
+            <p class="loading-message">We are preparing an AI custom course for you...</p>
+            <div class="loading-progress">
+                <div class="progress-bar" id="loadingProgressBar"></div>
+            </div>
+            <p class="loading-status" id="loadingStatus">0%</p>
         </div>
     </div>
 
@@ -94,7 +107,7 @@
         <div class="modal-content auth-modal">
             <!-- Login Form (shown by default) -->
             <div id="loginForm" class="auth-form active">
-                <h2>Welcome to FinEdu!</h2>
+                <h2>Welcome to TradED!</h2>
                 <p class="auth-subtitle">Login to save your progress and continue learning</p>
                 <div id="authError" class="auth-error hidden"></div>
                 
@@ -168,6 +181,10 @@
                     <span class="nav-icon">📚</span>
                     <span class="nav-text">Courses</span>
                 </div>
+                <div class="nav-item" id="quizzesTab">
+                    <span class="nav-icon">📝</span>
+                    <span class="nav-text">Quizzes</span>
+                </div>
                 <div class="nav-item" id="practiceTab">
                     <span class="nav-icon">💼</span>
                     <span class="nav-text">Feed</span>
@@ -236,12 +253,15 @@
         </div>
 
         <!-- Main Screen Content (News/Events Feed) -->
-        <div class="main-screen" id="mainScreen">
+        <div class="main-screen" id="mainScreen" style="display: none;">
             <div class="header-wrapper">
                 <header class="main-header">
                     <div class="header-inner">
                         <div class="header-title">
-                            <span class="header-label">Feed Controls</span>
+                            <div style="display: flex; align-items: center; gap: 12px;">
+                                <img src="images/LOGO.png" alt="TradED Logo" class="header-logo" style="height: 40px; position: relative; left: -15.75rem; transform: scale(2);">
+                                <span class="header-label">Feed Controls</span>
+                            </div>
                             <p class="header-subtitle">Switch between news and events</p>
                         </div>
                         <!-- Toggle Switch -->
@@ -284,8 +304,8 @@
         <div class="courses-window" id="coursesWindow" style="display: none;">
             <!-- Lessons List View (Full Screen) -->
             <div class="lessons-list-view" id="lessonsListView">
-                <div class="courses-header">
-                    <h2>Day Trading Fundamentals</h2>
+                <div class="courses-header hidden" id="coursesHeader">
+                    <h2>Day Trading Personal Course</h2>
                 </div>
 
                 <div class="lessons-tabs-container">
@@ -297,8 +317,42 @@
 
             <!-- Lesson Content View (Full Screen) -->
             <div class="lesson-content-view hidden" id="lessonContentView">
-                <button class="lesson-back-button" id="lessonBackButton">← Back to all lessons</button>
                 <div class="lesson-content" id="lessonContent">
+                    <!-- Lesson content will be injected here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Fullscreen Lesson Content Modal -->
+        <div class="fullscreen-lesson-container hidden" id="fullscreenLessonContainer">
+            <div class="fullscreen-lesson-header">
+                <button class="fullscreen-lesson-back-btn" id="fullscreenLessonBackBtn">
+                    <span>←</span> Back to all lessons
+                </button>
+            </div>
+            <div class="fullscreen-lesson-wrapper">
+                <!-- Chatbot Panel (Left) -->
+                <div class="lesson-chatbot-panel" id="lessonChatbotPanel">
+                    <div class="chatbot-header">
+                        <h3>Course Assistant</h3>
+                    </div>
+                    <div class="chatbot-messages" id="chatbotMessages">
+                        <div class="chatbot-welcome">
+                            <p>Hi! I'm your course assistant. Ask me anything about the course material.</p>
+                        </div>
+                    </div>
+                    <div class="chatbot-input-container">
+                        <input type="text" 
+                               id="chatbotInput" 
+                               class="chatbot-input" 
+                               placeholder="Ask a question about the course..."
+                               autocomplete="off">
+                        <button id="chatbotSendBtn" class="chatbot-send-btn">Send</button>
+                    </div>
+                </div>
+                
+                <!-- Lesson Content (Right) -->
+                <div class="fullscreen-lesson-content" id="fullscreenLessonContent">
                     <!-- Lesson content will be injected here -->
                 </div>
             </div>
@@ -327,6 +381,60 @@
                             </div>
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quizzes Window -->
+        <div class="quizzes-window" id="quizzesWindow" style="display: none;">
+            <!-- Quiz List View -->
+            <div class="quizzes-list-view" id="quizzesListView">
+                <div class="quizzes-header hidden" id="quizzesHeader">
+                    <h2 class="quizzes-title">Quizzes</h2>
+                </div>
+                <div class="quizzes-tabs-container">
+                    <div class="quizzes-tabs" id="quizzesTabs">
+                        <!-- Quiz tabs will be injected here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Fullscreen Quiz Taking Modal -->
+        <div class="fullscreen-quiz-container hidden" id="fullscreenQuizContainer">
+            <div class="fullscreen-quiz-header">
+                <button class="fullscreen-quiz-back-btn" id="fullscreenQuizBackBtn">
+                    <span>←</span> Back to all quizzes
+                </button>
+            </div>
+            <div class="fullscreen-quiz-content" id="fullscreenQuizContent">
+                <!-- Quiz content will be injected here -->
+            </div>
+        </div>
+
+        <!-- Quiz Pass Modal -->
+        <div class="quiz-result-modal hidden" id="quizPassModal">
+            <div class="quiz-result-content pass">
+                <div class="quiz-result-icon">🎉</div>
+                <h2 class="quiz-result-title">Yay! You Passed!</h2>
+                <p class="quiz-result-score" id="passScore"></p>
+                <div style="display: flex; flex-direction: column; gap: 0.75rem; width: 100%;">
+                    <button class="quiz-result-btn" id="quizPassReviewBtn">Review Your Answers</button>
+                    <button class="quiz-result-btn" id="quizPassBackBtn">Back to All Quizzes</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quiz Fail Modal -->
+        <div class="quiz-result-modal hidden" id="quizFailModal">
+            <div class="quiz-result-content fail">
+                <div class="quiz-result-icon">❌</div>
+                <h2 class="quiz-result-title">You Failed</h2>
+                <p class="quiz-result-score" id="failScore"></p>
+                <p class="quiz-result-message">You can try another attempt in 5 minutes.</p>
+                <div style="display: flex; flex-direction: column; gap: 0.75rem; width: 100%;">
+                    <button class="quiz-result-btn" id="quizFailReviewBtn">Review Your Answers</button>
+                    <button class="quiz-result-btn" id="quizFailBackBtn">Back to All Quizzes</button>
                 </div>
             </div>
         </div>

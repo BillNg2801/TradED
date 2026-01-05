@@ -8,7 +8,11 @@
     "inspect-courses": "node scripts/inspectCourses.js",
     "export-courses": "node scripts/exportCourseDetails.js",
     "view-course": "node scripts/viewSpecificCourse.js",
-    "view-default": "node scripts/viewDefaultCourse.js"
+    "view-default": "node scripts/viewDefaultCourse.js",
+    "generate-ultimate": "node scripts/generateUltimateCourses.js",
+    "cleanup-courses": "node scripts/cleanupCourses.js",
+    "expand-courses": "node scripts/expandUltimateCourses.js",
+    "generate-ultimate-quizzes": "node scripts/generateUltimateQuizzes.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
