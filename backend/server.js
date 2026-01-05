@@ -29,6 +29,23 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
+// Explicit routes for static assets (for Vercel compatibility)
+app.get('/styles.css', (req, res) => {
+    const path = require('path');
+    res.sendFile(path.join(__dirname, 'styles.css'));
+});
+
+app.get('/script.js', (req, res) => {
+    const path = require('path');
+    res.sendFile(path.join(__dirname, 'script.js'));
+});
+
+// Serve images from images directory
+app.get('/images/:filename', (req, res) => {
+    const path = require('path');
+    res.sendFile(path.join(__dirname, 'images', req.params.filename));
+});
+
 // Authentication routes
 app.use('/api/auth', authRoutes);
 
